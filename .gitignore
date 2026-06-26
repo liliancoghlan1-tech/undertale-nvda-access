@@ -1,0 +1,4 @@
+data.win
+*.win
+tool/
+*.zip

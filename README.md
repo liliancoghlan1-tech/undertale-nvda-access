@@ -1,0 +1,67 @@
+# UNDERTALE — NVDA Accessibility Mod
+
+**Play UNDERTALE by ear.** A fan-made accessibility mod that makes the whole game —
+story, menus, battles, navigation, puzzles, and even the final boss — playable with the
+[NVDA screen reader](https://www.nvaccess.org/) for blind and low-vision players.
+
+This mod was made by and tested by a blind player who beat the **entire game** with it,
+start to finish, including the hardest fights.
+
+---
+
+## ⬇️ Download & Install
+
+1. Get the latest **`Undertale-NVDA-Access.zip`** from the
+   [**Releases**](../../releases) page and unzip it anywhere.
+2. Make sure UNDERTALE is closed, then run **`Install`** (`Install.bat`).
+3. It auto-finds your game, backs it up, and patches it in a few seconds. Done.
+
+Everything the installer says is spoken by NVDA. Your original game is saved as
+`data.win.NVDA-BACKUP`, and **`Uninstall`** puts it back exactly.
+
+## ✅ Requirements
+
+- Windows PC
+- **UNDERTALE on Steam, Windows version 1.08** (the installer checks your version and
+  refuses safely if it doesn't match — it can't break your game)
+- **NVDA** running while you play (free from [nvaccess.org](https://www.nvaccess.org/))
+
+## 🎮 Controls
+
+Full list in **`KEYS.txt`** (included in the download). The essentials:
+
+- **Arrow keys / WASD** move · **Z** interact/confirm · **C** menu
+- **E** scans your surroundings; the mod guides you by voice as you walk
+- In dodging fights, press **M** for **Assisted mode** (can't be defeated) and follow the
+  guide beeps — *which ear* = left/right, *pitch* = up/down
+
+## What's covered
+
+Intro & all dialogue, naming screen, title/settings menus, walk-by-ear navigation, the
+in-game menu (items/stats/cell/save), shops, elevators, battle menus, the FIGHT timing
+bar, attack-dodging (with an assist/can't-die mode), area puzzles (with a skip option for
+the few that truly need eyesight), the Mettaton quiz, and the neutral-route final boss.
+
+### Honest limitations
+
+- A few purely visual puzzles use the **skip** option rather than a by-ear solution.
+- Some moving-target boss moments lean on **Assisted/Slow** mode rather than precise
+  dodging by ear.
+- Built and tested for **one game version** (Steam v1.08, Windows).
+
+This is a fan project — it will have rough edges, and feedback is very welcome.
+
+## How it works (for the curious)
+
+The mod patches Undertale's `data.win` with [UndertaleModTool](https://github.com/UnderminersTeam/UndertaleModTool),
+injecting GML that speaks text through NVDA and adds navigation, menu reading, and audio
+guidance. Speech goes through NVDA's controller client; spatial cues use a small custom
+stereo-beep library. The patch source (`inject_all.csx`) and the bridge sources
+(`src/*.c`) are in this repo. **No Undertale game files are included or redistributed** —
+the installer only modifies the copy you already own.
+
+## Credits & legal
+
+UNDERTALE is by **Toby Fox**. This is an unofficial fan accessibility project, not
+affiliated with or endorsed by Toby Fox. Built with **UndertaleModTool** (UnderminersTeam).
+Screen-reader speech uses **NVDA**'s controller client (NV Access).

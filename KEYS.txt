@@ -1,0 +1,80 @@
+============================================================
+ UNDERTALE - NVDA ACCESSIBILITY MOD - KEY REFERENCE
+============================================================
+
+Always have NVDA running before you start the game.
+Text, menus, and events are spoken automatically.
+
+------------------------------------------------------------
+WALKING AROUND (the overworld)
+------------------------------------------------------------
+  Arrow keys or W A S D ... move
+  Z ....................... talk / interact / read / confirm
+  X ....................... cancel / back
+  C ....................... open your menu (Items, Stats, Cell)
+
+  As you walk, the mod tells you the direction and number of
+  steps to your current target, and says "Blocked" at walls.
+
+  E ....................... scan: lists the nearest exit, save
+                            point, person, sign, switch, etc.
+  T ....................... select the next nearby thing
+  R ....................... select the previous nearby thing
+  G ....................... repeat your current target
+
+  Stuck on a puzzle that needs eyesight (and only then):
+  P ....................... skip-puzzle mode / cycle the exits
+  O ....................... confirm the chosen exit
+
+------------------------------------------------------------
+BATTLES - the menus (FIGHT / ACT / ITEM / MERCY)
+------------------------------------------------------------
+  Arrow keys .............. move the cursor (options are read)
+  Z ....................... choose
+  X ....................... go back
+
+  When you FIGHT, you hear quick "parking-sensor" beeps that
+  speed up and rise in pitch toward the center - press Z on
+  the fastest, highest beep for the best hit.
+
+------------------------------------------------------------
+BATTLES - dodging attacks (the bullet/heart part)
+------------------------------------------------------------
+  M ....................... change difficulty mode. It cycles:
+        Assisted = you cannot be defeated (recommended)
+        Slow     = half speed, but you can be defeated
+        Normal   = full speed, you can be defeated
+  A guide beep plays toward the safe spot:
+        which ear  = move left or right
+        high / low pitch = move up or down
+  Press the matching Arrow (or W A S D) to jump to the safe spot.
+  Q ....................... say where your heart is in the box
+  F (hold) ................ fast-forward through slow moments
+
+------------------------------------------------------------
+SPECIAL BITS
+------------------------------------------------------------
+  Mettaton quiz show ...... the question and all 4 answers are
+                            read. Press 1, 2, 3 or 4 to pick,
+                            then Z to lock it in. No time limit.
+  Hotland shooting puzzle . press P, then O, to skip it.
+  Elevators and shops ..... use the Arrow keys and Z; every
+                            option is read aloud.
+
+------------------------------------------------------------
+FINAL BOSS - Photoshop Flowey
+------------------------------------------------------------
+  Keep Assisted mode on (press M until "you cannot be defeated").
+  When you hear "Soul round. Press Z to free this soul":
+  Z ....................... free the soul (no aiming needed!)
+                            Do this for all 6 souls.
+  After "All six souls freed", press Z to attack with the
+  fight button and finish him.
+  R ....................... auto-free the current soul
+  O ....................... say the current state (souls freed,
+                            HP, whether a soul round is active)
+  F (hold) ................ speed up the quiet stretches
+
+============================================================
+Have fun. You earned this.
+============================================================
