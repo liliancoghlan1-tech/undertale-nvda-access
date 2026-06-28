@@ -32,15 +32,20 @@ Full list in **`KEYS.txt`** (included in the download). The essentials:
 
 - **Arrow keys / WASD** move · **Z** interact/confirm · **C** menu
 - **E** scans your surroundings; the mod guides you by voice as you walk
+- **V** auto-walks you to your selected target (pathfinds around walls)
+- **K** opens the in-game **Accessibility menu** (toggle features, difficulty, music) — also on the title screen
+- **N / B** turn the music down / up so the cues come through
 - In dodging fights, press **M** for **Assisted mode** (can't be defeated) and follow the
   guide beeps — *which ear* = left/right, *pitch* = up/down
 
 ## What's covered
 
-Intro & all dialogue, naming screen, title/settings menus, walk-by-ear navigation, the
-in-game menu (items/stats/cell/save), shops, elevators, battle menus, the FIGHT timing
-bar, attack-dodging (with an assist/can't-die mode), area puzzles (with a skip option for
-the few that truly need eyesight), the Mettaton quiz, and the neutral-route final boss.
+Intro & all dialogue, naming screen, title/settings menus, walk-by-ear navigation with
+**auto-walk** and ambient navigation sounds, an in-game **Accessibility menu**, music
+volume control, the in-game menu (items/stats/cell/save), shops, elevators, battle menus,
+the FIGHT timing bar, attack-dodging (with assist/slow/normal modes), the **jump** and
+**shield** soul fights, area puzzles (with a skip option for the few that truly need
+eyesight), the Mettaton quiz, and the final boss.
 
 ### Honest limitations
 

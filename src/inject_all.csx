@@ -63,11 +63,12 @@ var importGroup = new UndertaleModLib.Compiler.CodeImportGroup(Data);
 
 // Create: init the bridge, speak line 0, remember it as already-spoken.
 importGroup.QueueAppend(Data.Code.ByName("gml_Object_obj_base_writer_Create_0"),
-    bridgeInit + "\nnvda_lastspoke = stringno;\n" + SpeakCore("mystring[0]"));
+    "if (variable_global_exists(\"nvda_opt_speech\") && global.nvda_opt_speech == 0) exit;\n" + bridgeInit + "\nnvda_lastspoke = stringno;\n" + SpeakCore("mystring[0]"));
 
 // Step (every frame): if the line index changed, speak the new line.
 importGroup.QueueAppend(Data.Code.ByName("gml_Object_obj_base_writer_Step_0"),
-    "if (variable_instance_exists(id, \"nvda_lastspoke\") && stringno != nvda_lastspoke)\n{\n    nvda_lastspoke = stringno;\n"
+    "if (variable_global_exists(\"nvda_opt_speech\") && global.nvda_opt_speech == 0) exit;\n"
+    + "if (variable_instance_exists(id, \"nvda_lastspoke\") && stringno != nvda_lastspoke)\n{\n    nvda_lastspoke = stringno;\n"
     + SpeakCore("mystring[stringno]") + "\n}");
 
 // OBJ_NOMSCWRITER (the enemy-turn speech-bubble writer) defines its OWN Create_0
@@ -76,7 +77,7 @@ importGroup.QueueAppend(Data.Code.ByName("gml_Object_obj_base_writer_Step_0"),
 // the same logic.  Its Step_0 is inherited from obj_base_writer, so the line-change
 // watcher above already covers advancing lines once nvda_lastspoke is set here.
 importGroup.QueueAppend(Data.Code.ByName("gml_Object_OBJ_NOMSCWRITER_Create_0"),
-    bridgeInit + "\nnvda_lastspoke = stringno;\n" + SpeakCore("mystring[0]"));
+    "if (variable_global_exists(\"nvda_opt_speech\") && global.nvda_opt_speech == 0) exit;\n" + bridgeInit + "\nnvda_lastspoke = stringno;\n" + SpeakCore("mystring[0]"));
 
 importGroup.Import();
 Console.WriteLine("Injected NVDA: base_writer Create_0 + Step_0 watcher + NOMSCWRITER Create_0");
@@ -136,7 +137,7 @@ string gml = @"
                 var _o3 = ""Continue"";
                 if (selected3 == 1) { if (truereset == 0) _o3 = ""Reset""; else _o3 = ""True Reset""; }
                 else if (selected3 == 2) _o3 = ""Settings"";
-                _say = ""Load menu. Left or right for Continue or Reset, down for Settings. On "" + _o3;
+                _say = ""Load menu. Left or right for Continue or Reset, down for Settings and Accessibility options. On "" + _o3;
             }
             else
             {
@@ -176,19 +177,26 @@ string gml = @"
     }
     else if (naming == 2)
     {
-        if (spec_m != nvda_last_specm)
+        // spec_m / allow / selected2 are only created by the game's own naming==2
+        // block, which is skipped on the frame naming flips to 2 (from the grid's
+        // ""Done"" at line 465 or the Reset path at line 645).  Reading spec_m before
+        // the game sets it = fatal ""not set before reading it"".  Wait one frame.
+        if (variable_instance_exists(id, ""spec_m"") && variable_instance_exists(id, ""allow"") && variable_instance_exists(id, ""selected2""))
         {
-            nvda_last_specm = spec_m;
-            nvda_last_sel2 = selected2;
-            var _opt = ""Go back"";
-            if (allow) { if (selected2 == 1) _opt = ""Yes""; else _opt = ""No""; }
-            _say = spec_m + "". "" + _opt;
-        }
-        else if (selected2 != nvda_last_sel2)
-        {
-            nvda_last_sel2 = selected2;
-            if (allow) { if (selected2 == 1) _say = ""Yes""; else _say = ""No""; }
-            else _say = ""Go back"";
+            if (spec_m != nvda_last_specm)
+            {
+                nvda_last_specm = spec_m;
+                nvda_last_sel2 = selected2;
+                var _opt = ""Go back"";
+                if (allow) { if (selected2 == 1) _opt = ""Yes""; else _opt = ""No""; }
+                _say = spec_m + "". "" + _opt;
+            }
+            else if (selected2 != nvda_last_sel2)
+            {
+                nvda_last_sel2 = selected2;
+                if (allow) { if (selected2 == 1) _say = ""Yes""; else _say = ""No""; }
+                else _say = ""Go back"";
+            }
         }
     }
     else if (naming == 3)
@@ -201,12 +209,29 @@ string gml = @"
                 if (selected3 == 0) _say = ""Continue"";
                 else if (selected3 == 1) { if (truereset == 0) _say = ""Reset""; else _say = ""True Reset""; }
                 else if (selected3 == 2) _say = ""Settings"";
+                else if (selected3 == 3) _say = ""Accessibility options"";
             }
             else
             {
                 if (selected3 == 0) _say = ""Begin Game"";
                 else if (selected3 == 1) _say = ""Settings"";
+                else if (selected3 == 2) _say = ""Accessibility options"";
             }
+        }
+    }
+    // Open the accessibility menu when Z is confirmed on the new 4th item. The game set
+    // local 'action' = selected3 on confirm but has no handler for our extra index, so
+    // we open our own menu (driven by obj_time Step_1). Guard on naming==3 so 'action'
+    // was assigned this frame. accidx = 3 with a save (Continue/Reset/Settings/Access),
+    // else 2 (Begin Game/Settings/Access).
+    if (naming == 3)
+    {
+        var _accidx = 3;
+        if (hasname != 1) _accidx = 2;
+        if (action == _accidx && global.nvda_menu_open == 0)
+        {
+            global.nvda_menu_open = 1;
+            global.nvda_menu_sel = 0;
         }
     }
     if (_say != """")
@@ -350,7 +375,7 @@ string[] need = { "external_define","external_call","variable_global_exists","va
                   "keyboard_check","keyboard_check_pressed","ord","point_distance","instance_nearest",
                   "instance_exists","is_string","scr_roomname","round","string","object_get_name",
                   "ds_list_create","ds_list_add","ds_list_size","ds_list_find_value",
-                  "ds_list_replace","ds_list_destroy","string_copy","string_length","string_replace_all" };
+                  "ds_list_replace","ds_list_destroy","ds_list_delete","string_copy","string_length","string_replace_all" };
 foreach (var f in need) Data.Functions.EnsureDefined(f, Data.Strings);
 
 string bridge = @"
@@ -392,7 +417,13 @@ string tag = @"
 string buildList = @"
     var _list = ds_list_create();
     with (obj_interactable) ds_list_add(_list, id);
-    with (obj_doorparent) ds_list_add(_list, id);
+    // doors, but NOT the ice-slide trigger tiles (obj_iceevent/up/right are obj_doorparent
+    // children; a slide room has 100+ of them -> they flooded the scanner as fake ""exits"").
+    with (obj_doorparent)
+    {
+        if (object_index != obj_iceevent && object_index != obj_iceeventup && object_index != obj_iceeventright)
+            ds_list_add(_list, id);
+    }
     with (obj_pushrock1) ds_list_add(_list, id);
     with (obj_floorswitch1) ds_list_add(_list, id);
     with (obj_spiketile1) ds_list_add(_list, id);
@@ -404,6 +435,26 @@ string buildList = @"
     with (obj_holeup2) ds_list_add(_list, id);
     with (obj_xoxo) ds_list_add(_list, id);
     with (obj_xoxocontroller1) ds_list_add(_list, id);
+    // DEDUPE: a single door/sign is often several adjacent instances of the same object. Drop any
+    // instance that shares its object_index with an earlier-kept one within 48px (= same logical
+    // thing) so one wide door / multi-tile sign shows up ONCE instead of 4 times.
+    var _dd = 0;
+    for (_dd = ds_list_size(_list) - 1; _dd > 0; _dd -= 1)
+    {
+        var _da = ds_list_find_value(_list, _dd);
+        var _de = 0;
+        var _dup = 0;
+        for (_de = 0; _de < _dd; _de += 1)
+        {
+            var _db = ds_list_find_value(_list, _de);
+            if (_da.object_index == _db.object_index && point_distance(_da.x, _da.y, _db.x, _db.y) < 48)
+            {
+                _dup = 1;
+                break;
+            }
+        }
+        if (_dup == 1) ds_list_delete(_list, _dd);
+    }
     var _n = ds_list_size(_list);
     var _px = x; var _py = y;
     var _i = 0;
@@ -463,7 +514,8 @@ string createGml = @"
 
 // ---- Step_0 ----
 string stepGml = @"
-{" + bridge + @"
+{
+    if (variable_global_exists(""nvda_opt_scan"") && global.nvda_opt_scan == 0) { } else {" + bridge + @"
     if (!variable_instance_exists(id, ""nvda_lastdir""))
     {
         nvda_lastdir = ""<x>""; nvda_blocktimer = 0; nvda_startdelay = 0;
@@ -484,7 +536,7 @@ string stepGml = @"
             if (global.nvda_idx < 0) global.nvda_idx = global.nvda_listn - 1;
             global.nvda_sel = global.nvda_list[global.nvda_idx];
             var _sel = global.nvda_sel;" + announce + @"
-            external_call(global.nvda_speak, string(global.nvda_idx + 1) + "" of "" + string(global.nvda_listn) + "". "" + _out);
+            external_call(global.nvda_speak, _out + "". "" + string(global.nvda_idx + 1) + "" of "" + string(global.nvda_listn));
             nvda_lastdir = _dir;
         }
     }
@@ -542,11 +594,12 @@ string stepGml = @"
 
     if (movement == 1)
     {
+        var _walking = (variable_global_exists(""nvda_walk_active"") && global.nvda_walk_active == 1);
         if (nvda_startdelay > 0)
         {
             nvda_startdelay -= 1;
         }
-        else if (variable_global_exists(""nvda_sel"") && global.nvda_sel != noone && instance_exists(global.nvda_sel))
+        else if (!_walking && variable_global_exists(""nvda_sel"") && global.nvda_sel != noone && instance_exists(global.nvda_sel))
         {
             var _t = global.nvda_sel;
             var _dx = _t.x - x; var _dy = _t.y - y;
@@ -564,7 +617,7 @@ string stepGml = @"
         }
 
         var _tried = (obj_time.up || obj_time.down || obj_time.left || obj_time.right);
-        if (_tried && x == xprevious && y == yprevious)
+        if (_tried && x == xprevious && y == yprevious && !_walking)
         {
             if (nvda_blocktimer <= 0)
             {
@@ -599,6 +652,7 @@ string stepGml = @"
             }
         }
         if (nvda_holetimer > 0) nvda_holetimer -= 1;
+    }
     }
 }";
 
@@ -662,7 +716,8 @@ string bridge = @"
     }";
 
 string gml = @"
-{" + bridge + @"
+{
+    if (variable_global_exists(""nvda_opt_speech"") && global.nvda_opt_speech == 0) exit;" + bridge + @"
     if (!variable_instance_exists(id, ""nvda_bset""))
     {
         nvda_bset = 1; nvda_pmenu = -99; nvda_pc0 = -99; nvda_pc1 = -99;
@@ -823,7 +878,8 @@ string bridge = @"
     }";
 
 string createGml = @"
-{" + bridge + @"
+{
+    if (variable_global_exists(""nvda_opt_combat"") && global.nvda_opt_combat == 0) exit;" + bridge + @"
     hspeed *= 0.5;
     nvda_beeptimer = 0;
     nvda_announced = 0;
@@ -832,6 +888,7 @@ string createGml = @"
 
 string stepGml = @"
 {
+    if (variable_global_exists(""nvda_opt_combat"") && global.nvda_opt_combat == 0) exit;
     if (!variable_instance_exists(id, ""nvda_announced"")) nvda_announced = 0;
     if (!variable_instance_exists(id, ""nvda_beeptimer"")) nvda_beeptimer = 0;
     if (image_speed == 0)
@@ -890,6 +947,7 @@ Data.Functions.EnsureDefined("variable_instance_exists", Data.Strings);
 Data.Functions.EnsureDefined("string", Data.Strings);
 
 string gml = @"
+if (variable_global_exists(""nvda_opt_speech"") && global.nvda_opt_speech == 0) exit;
 if (!variable_instance_exists(id, ""nvda_said""))
 {
     nvda_said = 1;
@@ -1041,7 +1099,10 @@ string[] bulletObjs = {
     "obj_spiderbulletparent", "obj_asgorebulparent", "obj_asbulletparent",
     "obj_amalgambul_parent", "obj_floweybullet_parent", "obj_metttestbulletparent",
     "obj_astigmatism_bullet", "obj_6gun_bullet", "obj_donutbullet",
-    "obj_croissant", "obj_vertcroissant", "obj_spiderbullet"
+    "obj_croissant", "obj_vertcroissant", "obj_spiderbullet",
+    // Undyne in-battle red-soul spears (follow = home-then-dash; rise = 3 columns):
+    "obj_spearbullet_follow", "obj_risespearbullet", "obj_followspear_2",
+    "obj_rotspear", "obj_undynespear"
 };
 var _bsb = new System.Text.StringBuilder();
 foreach (var bo in bulletObjs)
@@ -1055,6 +1116,7 @@ string bulletCollect = _bsb.ToString();
 Console.WriteLine("Dodge scan covers " + bulletCollect.Split('\n').Length + " bullet families");
 
 string safespot = @"
+if (variable_global_exists(""nvda_opt_combat"") && global.nvda_opt_combat == 0) exit;
 if (variable_instance_exists(id, ""movement"") && movement == 1 && global.mnfight == 2)
 {" + panbridge + @"
     // Gather bullet positions once (cap for cost), then reuse for the grid scan.
@@ -1201,6 +1263,7 @@ var _steps = round(point_distance(x, y, _door.x, _door.y) / 20);
 external_call(global.nvda_speak, _pre + ""Exit "" + string(nvda_skipidx + 1) + "" of "" + string(global.nvda_doorn) + "", "" + _dir + "", "" + string(_steps) + "" steps."");";
 
 string skip = @"
+if (variable_global_exists(""nvda_opt_skip"") && global.nvda_opt_skip == 0) exit;
 if (!variable_instance_exists(id, ""nvda_skipmode"")) nvda_skipmode = 0;
 if (!variable_instance_exists(id, ""nvda_skipidx""))  nvda_skipidx = 0;
 
@@ -1223,9 +1286,28 @@ if (global.interact == 0 && keyboard_check_pressed(ord(""P"")))
         global.nvda_doorn = 0;
         with (obj_doorparent)
         {
-            global.nvda_dlid[global.nvda_doorn] = id;
-            global.nvda_dld[global.nvda_doorn] = point_distance(x, y, other.x, other.y);
-            global.nvda_doorn += 1;
+            // skip ice-slide trigger tiles (not real exits) so the skip-picker isn't flooded
+            if (object_index != obj_iceevent && object_index != obj_iceeventup && object_index != obj_iceeventright)
+            {
+                // dedupe: skip if a same-type door already added within 48px (one wide doorway)
+                var _isdup = 0;
+                var _q = 0;
+                for (_q = 0; _q < global.nvda_doorn; _q += 1)
+                {
+                    var _ex = global.nvda_dlid[_q];
+                    if (instance_exists(_ex) && _ex.object_index == object_index && point_distance(x, y, _ex.x, _ex.y) < 48)
+                    {
+                        _isdup = 1;
+                        break;
+                    }
+                }
+                if (_isdup == 0)
+                {
+                    global.nvda_dlid[global.nvda_doorn] = id;
+                    global.nvda_dld[global.nvda_doorn] = point_distance(x, y, other.x, other.y);
+                    global.nvda_doorn += 1;
+                }
+            }
         }
         var _i; var _j;
         for (_i = 0; _i < global.nvda_doorn - 1; _i += 1)
@@ -1569,7 +1651,8 @@ if (!variable_global_exists(""nvda_ready""))
 }";
 
 string skip = @"
-{" + bridge + @"
+{
+    if (variable_global_exists(""nvda_opt_skip"") && global.nvda_opt_skip == 0) exit;" + bridge + @"
     if (!variable_instance_exists(id, ""nvda_sgann"")) { nvda_sgann = 0; nvda_sgarm = 0; }
 
     // Announce once that this is a skippable visual puzzle, when it becomes active.
@@ -1839,6 +1922,7 @@ g.QueueAppend(Data.Code.ByName("gml_Object_obj_time_Step_1"), srwatch);
 
 // --- Guide + context Z + auto-rescue + diagnostic, in obj_vsflowey_heart Step_0 ---
 string guide = @"
+if (variable_global_exists(""nvda_opt_combat"") && global.nvda_opt_combat == 0) exit;
 if (variable_instance_exists(id, ""move""))
 {" + bridge + panbridge + @"
     if (!variable_instance_exists(id, ""nvda_cue"")) { nvda_cue = 0; nvda_mode2 = -1; }
@@ -1945,4 +2029,1700 @@ g.QueueAppend(Data.Code.ByName("gml_Object_obj_vsflowey_heart_Step_0"), guide);
 g.Import();
 Console.WriteLine("Injected FLOWEY soul-rescue GUIDE v2: context-Z (position-independent) + R auto + O diagnostic + orientation beep + soul-count speech");
 
+}
+
+
+// ===== inject_choicer.csx =====
+{
+Data.Functions.EnsureDefined("external_define", Data.Strings);
+Data.Functions.EnsureDefined("external_call", Data.Strings);
+Data.Functions.EnsureDefined("variable_global_exists", Data.Strings);
+Data.Functions.EnsureDefined("variable_instance_exists", Data.Strings);
+Data.Functions.EnsureDefined("string_char_at", Data.Strings);
+Data.Functions.EnsureDefined("string_length", Data.Strings);
+Data.Functions.EnsureDefined("chr", Data.Strings);
+
+string gml = @"
+{
+    if (!variable_global_exists(""nvda_ready""))
+    {
+        global.nvda_init = external_define(""nvda_gm.dll"", ""gmnvda_init"", 0, 0, 1, 1);
+        global.nvda_speak = external_define(""nvda_gm.dll"", ""gmnvda_speak"", 0, 0, 1, 1);
+        external_call(global.nvda_init, """");
+        global.nvda_ready = 1;
+    }
+    if (!variable_instance_exists(id, ""nvda_ch_init""))
+    {
+        nvda_ch_init = 1;
+        nvda_lastchoice = -99;
+        nvda_opt0 = """";
+        nvda_opt1 = """";
+        nvda_parsed = 0;
+    }
+    if (nvda_parsed == 0 && instance_exists(creator))
+    {
+        if (variable_instance_exists(creator, ""originalstring""))
+        {
+            var s = creator.originalstring;
+            var BS = chr(92);
+            var o0 = """";
+            var o1 = """";
+
+            // ---- Pass A: \>0 / \>1 position codes (Japanese) ----
+            var col = -1;
+            var L = string_length(s);
+            var i = 1;
+            while (i <= L)
+            {
+                var c = string_char_at(s, i);
+                var step = 1;
+                if (c == BS)
+                {
+                    var c2 = string_char_at(s, i + 1);
+                    if (c2 == "">"")
+                    {
+                        var d = string_char_at(s, i + 2);
+                        if (d == ""0"") col = 0;
+                        else if (d == ""1"") col = 1;
+                        else col = -1;
+                        step = 3;
+                    }
+                    else if (c2 == ""E"" || c2 == ""F"" || c2 == ""M"" || c2 == ""T"" || c2 == ""S"" || c2 == ""z"" || c2 == ""*"")
+                    {
+                        step = 3;
+                    }
+                    else
+                    {
+                        step = 2;
+                    }
+                }
+                else if (c == ""^"")
+                {
+                    step = 2;
+                }
+                else if (c == ""&"" || c == ""/"" || c == ""%"" || c == ""*"")
+                {
+                    step = 1;
+                }
+                else
+                {
+                    if (col == 0) o0 += c;
+                    else if (col == 1) o1 += c;
+                }
+                i += step;
+            }
+
+            // ---- Pass B: space-positioned columns (English) ----
+            if (o0 == """" || o1 == """")
+            {
+                o0 = """";
+                o1 = """";
+                var cleaned = """";
+                var si = 1;
+                var slen = string_length(s);
+                while (si <= slen)
+                {
+                    var ch = string_char_at(s, si);
+                    var adv = 1;
+                    if (ch == BS)
+                    {
+                        var nx = string_char_at(s, si + 1);
+                        if (nx == ""E"" || nx == ""F"" || nx == ""M"" || nx == ""T"" || nx == ""S"" || nx == ""z"" || nx == ""*"") adv = 3;
+                        else adv = 2;
+                    }
+                    else if (ch == ""^"")
+                    {
+                        adv = 2;
+                    }
+                    else
+                    {
+                        cleaned += ch;
+                    }
+                    si += adv;
+                }
+
+                var inopt = 0;
+                var line = """";
+                var ci = 1;
+                var clen = string_length(cleaned);
+                while (ci <= (clen + 1))
+                {
+                    var ec = """";
+                    if (ci <= clen) ec = string_char_at(cleaned, ci);
+                    if (ec == ""&"" || ci > clen)
+                    {
+                        var llen = string_length(line);
+                        var lead = 0;
+                        var p = 1;
+                        while (p <= llen && string_char_at(line, p) == "" "")
+                        {
+                            lead += 1;
+                            p += 1;
+                        }
+                        var hasbullet = 0;
+                        if (p <= llen && string_char_at(line, p) == ""*"") hasbullet = 1;
+                        var t0 = """";
+                        var t1 = """";
+                        var tcount = 0;
+                        var cur = """";
+                        var srun = 0;
+                        var k = 1;
+                        while (k <= llen)
+                        {
+                            var cc = string_char_at(line, k);
+                            if (cc == "" "")
+                            {
+                                srun += 1;
+                            }
+                            else
+                            {
+                                if (srun >= 3 && cur != """")
+                                {
+                                    if (tcount == 0) t0 = cur;
+                                    else if (tcount == 1) t1 = cur;
+                                    tcount += 1;
+                                    cur = """";
+                                }
+                                if (srun >= 1 && srun < 3 && cur != """") cur += "" "";
+                                srun = 0;
+                                cur += cc;
+                            }
+                            k += 1;
+                        }
+                        if (cur != """")
+                        {
+                            if (tcount == 0) t0 = cur;
+                            else if (tcount == 1) t1 = cur;
+                            tcount += 1;
+                        }
+                        if (tcount >= 2)
+                        {
+                            inopt = 1;
+                            if (o0 != """") o0 += "" "";
+                            o0 += t0;
+                            if (o1 != """") o1 += "" "";
+                            o1 += t1;
+                        }
+                        else if (tcount == 1)
+                        {
+                            var isopt = inopt;
+                            if (lead >= 8 && hasbullet == 0) isopt = 1;
+                            if (isopt == 1)
+                            {
+                                inopt = 1;
+                                if (lead >= 13)
+                                {
+                                    if (o1 != """") o1 += "" "";
+                                    o1 += t0;
+                                }
+                                else
+                                {
+                                    if (o0 != """") o0 += "" "";
+                                    o0 += t0;
+                                }
+                            }
+                        }
+                        line = """";
+                    }
+                    else
+                    {
+                        line += ec;
+                    }
+                    ci += 1;
+                }
+            }
+
+            nvda_opt0 = o0;
+            nvda_opt1 = o1;
+            if (o0 != """" || o1 != """")
+            {
+                nvda_parsed = 1;
+            }
+        }
+    }
+    if (nvda_parsed == 1)
+    {
+        if (mychoice != nvda_lastchoice)
+        {
+            var firsttime = 0;
+            if (nvda_lastchoice == -99) firsttime = 1;
+            nvda_lastchoice = mychoice;
+            var pick = nvda_opt0;
+            var alt = nvda_opt1;
+            if (mychoice == 1)
+            {
+                pick = nvda_opt1;
+                alt = nvda_opt0;
+            }
+            if (firsttime == 1)
+            {
+                external_call(global.nvda_speak, ""Choice. "" + pick + "", or "" + alt + "". Press left or right, then Z. On "" + pick);
+            }
+            else
+            {
+                external_call(global.nvda_speak, pick);
+            }
+        }
+    }
+}";
+
+var importGroup = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+importGroup.QueueAppend(Data.Code.ByName("gml_Object_obj_choicer_Step_0"), gml);
+importGroup.Import();
+Console.WriteLine("Injected dialogue-choice announcer into obj_choicer Step_0");
+
+}
+
+// ===== inject_shield.csx =====
+{
+Data.Functions.EnsureDefined("external_define", Data.Strings);
+Data.Functions.EnsureDefined("external_call", Data.Strings);
+Data.Functions.EnsureDefined("variable_global_exists", Data.Strings);
+Data.Functions.EnsureDefined("variable_instance_exists", Data.Strings);
+Data.Functions.EnsureDefined("point_distance", Data.Strings);
+Data.Functions.EnsureDefined("abs", Data.Strings);
+Data.Functions.EnsureDefined("instance_exists", Data.Strings);
+
+string gml = @"
+{
+    if (!variable_global_exists(""nvda_ready""))
+    {
+        global.nvda_init = external_define(""nvda_gm.dll"", ""gmnvda_init"", 0, 0, 1, 1);
+        global.nvda_speak = external_define(""nvda_gm.dll"", ""gmnvda_speak"", 0, 0, 1, 1);
+        external_call(global.nvda_init, """");
+        global.nvda_ready = 1;
+    }
+    if (!variable_global_exists(""pan_ready""))
+    {
+        global.pan_init = external_define(""gmpan.dll"", ""gmpan_init"", 0, 0, 0);
+        global.pan_beep = external_define(""gmpan.dll"", ""gmpan_beep"", 0, 0, 4, 0, 0, 0, 0);
+        external_call(global.pan_init);
+        global.pan_ready = 1;
+    }
+    if (!variable_instance_exists(id, ""nvda_sh_init""))
+    {
+        nvda_sh_init = 1;
+        nvda_blocklast = -99;
+        nvda_shtimer = 0;
+        nvda_sh_intro = 0;
+    }
+    if (nvda_sh_intro == 0)
+    {
+        nvda_sh_intro = 1;
+        external_call(global.nvda_speak, ""Shield. Block each spear with the arrow toward it. Beep: left or right ear is left or right, high pitch is up, low pitch is down."");
+    }
+
+    var cx = x;
+    var cy = y;
+    var bestd = 100000;
+    var bestside = -1;
+    with (obj_blockbullet)
+    {
+        if (x != 0 || y != 0)
+        {
+            var dd = point_distance(x, y, cx, cy);
+            if (dd < bestd)
+            {
+                bestd = dd;
+                var dx = x - cx;
+                var dy = y - cy;
+                if (abs(dx) >= abs(dy))
+                {
+                    if (dx < 0) bestside = 0;
+                    else bestside = 1;
+                }
+                else
+                {
+                    if (dy > 0) bestside = 2;
+                    else bestside = 3;
+                }
+            }
+        }
+    }
+    with (obj_blockbullet2)
+    {
+        if (x != 0 || y != 0)
+        {
+            var dd2 = point_distance(x, y, cx, cy);
+            if (dd2 < bestd)
+            {
+                bestd = dd2;
+                var dx2 = x - cx;
+                var dy2 = y - cy;
+                if (abs(dx2) >= abs(dy2))
+                {
+                    if (dx2 < 0) bestside = 0;
+                    else bestside = 1;
+                }
+                else
+                {
+                    if (dy2 > 0) bestside = 2;
+                    else bestside = 3;
+                }
+            }
+        }
+    }
+
+    if (nvda_shtimer > 0) nvda_shtimer -= 1;
+
+    if (bestside == -1)
+    {
+        nvda_blocklast = -99;
+    }
+    else
+    {
+        if (bestside != nvda_blocklast && nvda_shtimer <= 0)
+        {
+            nvda_blocklast = bestside;
+            nvda_shtimer = 6;
+            var _pan = 0;
+            var _freq = 500;
+            if (bestside == 0) { _pan = -1; _freq = 440; }
+            else if (bestside == 1) { _pan = 1; _freq = 440; }
+            else if (bestside == 2) { _pan = 0; _freq = 300; }
+            else if (bestside == 3) { _pan = 0; _freq = 750; }
+            external_call(global.pan_beep, _pan, _freq, 130, 0.7);
+        }
+    }
+}";
+
+var importGroup = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+importGroup.QueueAppend(Data.Code.ByName("gml_Object_obj_spearblocker_Step_0"), gml);
+importGroup.Import();
+Console.WriteLine("Injected GREEN-SOUL shield spear-direction cue into obj_spearblocker Step_0");
+
+}
+
+// ===== IN-BATTLE / DATE heart-choice reader (papdate / adate / truechara) =====
+{
+// Undertale accessibility - IN-BATTLE / DATE heart-choices.
+// Distinct from overworld obj_choicer (already handled): the in-battle and "date"
+// (Papyrus date = obj_papdate, Alphys date = obj_adate) choices, and the final
+// kill/spare pick (obj_truechara: ERASE vs DO NOT), use a per-host instance var
+// pair: `choicer` (1 = picking, 2 = confirmed) + `choice` (0 = left option,
+// 1 = right option).  vk_left/vk_right toggle, Z confirms.  Vanilla speaks
+// nothing, so blind players can't tell what the two options are.
+//
+// Option text source:
+//   * dates  -> global.msg[0] (space-column English layout, same as obj_choicer)
+//   * truechara -> two fixed gettext labels (erase / donot)
+//
+// Centralised in the persistent obj_time Begin Step (runs in battle), so one hook
+// covers all current and future in-battle heart-choice hosts.  One frame after the
+// host sets choicer==1 we announce "Choose. <pick>, or <alt>. ..."; each arrow
+// toggle re-announces the now-selected option.  Uses global state (only one choice
+// is ever active at a time).
+
+foreach (var f in new string[] {
+    "external_define", "external_call", "variable_global_exists",
+    "variable_instance_exists", "string_char_at", "string_length", "chr",
+    "script_execute", "instance_exists"
+}) Data.Functions.EnsureDefined(f, Data.Strings);
+
+string gml = @"
+{
+    if (variable_global_exists(""nvda_opt_combat"") && global.nvda_opt_combat == 0) exit;
+    if (!variable_global_exists(""nvda_ready""))
+    {
+        global.nvda_init = external_define(""nvda_gm.dll"", ""gmnvda_init"", 0, 0, 1, 1);
+        global.nvda_speak = external_define(""nvda_gm.dll"", ""gmnvda_speak"", 0, 0, 1, 1);
+        external_call(global.nvda_init, """");
+        global.nvda_ready = 1;
+    }
+    if (!variable_global_exists(""nvda_bcq_init""))
+    {
+        global.nvda_bcq_init = 1;
+        global.nvda_bc_active = 0;
+        global.nvda_bc_lastchoice = -99;
+        global.nvda_bc_opt0 = """";
+        global.nvda_bc_opt1 = """";
+    }
+
+    // ---- find an active in-battle heart-choice host ----
+    var _bc_host = noone;
+    var _bc_mode = 0;   // 0 = parse global.msg[0]; 1 = truechara fixed labels
+    if (instance_exists(obj_truechara))
+    {
+        if (obj_truechara.choicer == 1) { _bc_host = obj_truechara; _bc_mode = 1; }
+    }
+    if (_bc_host == noone && instance_exists(obj_papdate))
+    {
+        if (obj_papdate.choicer == 1) { _bc_host = obj_papdate; _bc_mode = 0; }
+    }
+    if (_bc_host == noone && instance_exists(obj_adate))
+    {
+        if (obj_adate.choicer == 1) { _bc_host = obj_adate; _bc_mode = 0; }
+    }
+
+    if (_bc_host == noone)
+    {
+        global.nvda_bc_active = 0;
+        global.nvda_bc_lastchoice = -99;
+    }
+    else
+    {
+        if (global.nvda_bc_active == 0)
+        {
+            // first appearance -> parse the two options once
+            global.nvda_bc_active = 1;
+            global.nvda_bc_lastchoice = -99;
+            var bo0 = """";
+            var bo1 = """";
+            if (_bc_mode == 1)
+            {
+                bo0 = script_execute(scr_gettext, ""obj_truechara_erase"");
+                bo1 = script_execute(scr_gettext, ""obj_truechara_donot"");
+            }
+            else
+            {
+                var bs = """";
+                if (variable_global_exists(""msg"")) bs = global.msg[0];
+                var BS = chr(92);
+
+                // ---- Pass A: \>0 / \>1 position codes (Japanese) ----
+                var bcol = -1;
+                var bL = string_length(bs);
+                var bi = 1;
+                while (bi <= bL)
+                {
+                    var bc = string_char_at(bs, bi);
+                    var bstep = 1;
+                    if (bc == BS)
+                    {
+                        var bc2 = string_char_at(bs, bi + 1);
+                        if (bc2 == "">"")
+                        {
+                            var bd = string_char_at(bs, bi + 2);
+                            if (bd == ""0"") bcol = 0;
+                            else if (bd == ""1"") bcol = 1;
+                            else bcol = -1;
+                            bstep = 3;
+                        }
+                        else if (bc2 == ""E"" || bc2 == ""F"" || bc2 == ""M"" || bc2 == ""T"" || bc2 == ""S"" || bc2 == ""z"" || bc2 == ""*"")
+                        {
+                            bstep = 3;
+                        }
+                        else
+                        {
+                            bstep = 2;
+                        }
+                    }
+                    else if (bc == ""^"")
+                    {
+                        bstep = 2;
+                    }
+                    else if (bc == ""&"" || bc == ""/"" || bc == ""%"" || bc == ""*"")
+                    {
+                        bstep = 1;
+                    }
+                    else
+                    {
+                        if (bcol == 0) bo0 += bc;
+                        else if (bcol == 1) bo1 += bc;
+                    }
+                    bi += bstep;
+                }
+
+                // ---- Pass B: space-positioned columns (English) ----
+                if (bo0 == """" || bo1 == """")
+                {
+                    bo0 = """";
+                    bo1 = """";
+                    var bclean = """";
+                    var bsi = 1;
+                    var bslen = string_length(bs);
+                    while (bsi <= bslen)
+                    {
+                        var bch = string_char_at(bs, bsi);
+                        var badv = 1;
+                        if (bch == BS)
+                        {
+                            var bnx = string_char_at(bs, bsi + 1);
+                            if (bnx == ""E"" || bnx == ""F"" || bnx == ""M"" || bnx == ""T"" || bnx == ""S"" || bnx == ""z"" || bnx == ""*"") badv = 3;
+                            else badv = 2;
+                        }
+                        else if (bch == ""^"")
+                        {
+                            badv = 2;
+                        }
+                        else
+                        {
+                            bclean += bch;
+                        }
+                        bsi += badv;
+                    }
+
+                    var binopt = 0;
+                    var bline = """";
+                    var bci = 1;
+                    var bclen = string_length(bclean);
+                    while (bci <= (bclen + 1))
+                    {
+                        var bec = """";
+                        if (bci <= bclen) bec = string_char_at(bclean, bci);
+                        if (bec == ""&"" || bci > bclen)
+                        {
+                            var bllen = string_length(bline);
+                            var blead = 0;
+                            var bp = 1;
+                            while (bp <= bllen && string_char_at(bline, bp) == "" "")
+                            {
+                                blead += 1;
+                                bp += 1;
+                            }
+                            var bbullet = 0;
+                            if (bp <= bllen && string_char_at(bline, bp) == ""*"") bbullet = 1;
+                            var bt0 = """";
+                            var bt1 = """";
+                            var btc = 0;
+                            var bcur = """";
+                            var brun = 0;
+                            var bk = 1;
+                            while (bk <= bllen)
+                            {
+                                var bcc = string_char_at(bline, bk);
+                                if (bcc == "" "")
+                                {
+                                    brun += 1;
+                                }
+                                else
+                                {
+                                    if (brun >= 3 && bcur != """")
+                                    {
+                                        if (btc == 0) bt0 = bcur;
+                                        else if (btc == 1) bt1 = bcur;
+                                        btc += 1;
+                                        bcur = """";
+                                    }
+                                    if (brun >= 1 && brun < 3 && bcur != """") bcur += "" "";
+                                    brun = 0;
+                                    bcur += bcc;
+                                }
+                                bk += 1;
+                            }
+                            if (bcur != """")
+                            {
+                                if (btc == 0) bt0 = bcur;
+                                else if (btc == 1) bt1 = bcur;
+                                btc += 1;
+                            }
+                            if (btc >= 2)
+                            {
+                                binopt = 1;
+                                if (bo0 != """") bo0 += "" "";
+                                bo0 += bt0;
+                                if (bo1 != """") bo1 += "" "";
+                                bo1 += bt1;
+                            }
+                            else if (btc == 1)
+                            {
+                                var bisopt = binopt;
+                                if (blead >= 8 && bbullet == 0) bisopt = 1;
+                                if (bisopt == 1)
+                                {
+                                    binopt = 1;
+                                    if (blead >= 13)
+                                    {
+                                        if (bo1 != """") bo1 += "" "";
+                                        bo1 += bt0;
+                                    }
+                                    else
+                                    {
+                                        if (bo0 != """") bo0 += "" "";
+                                        bo0 += bt0;
+                                    }
+                                }
+                            }
+                            bline = """";
+                        }
+                        else
+                        {
+                            bline += bec;
+                        }
+                        bci += 1;
+                    }
+                }
+            }
+            global.nvda_bc_opt0 = bo0;
+            global.nvda_bc_opt1 = bo1;
+        }
+
+        var bsel = _bc_host.choice;
+        if (bsel != global.nvda_bc_lastchoice)
+        {
+            var bfirst = 0;
+            if (global.nvda_bc_lastchoice == -99) bfirst = 1;
+            global.nvda_bc_lastchoice = bsel;
+            var bpick = global.nvda_bc_opt0;
+            var balt = global.nvda_bc_opt1;
+            if (bsel == 1)
+            {
+                bpick = global.nvda_bc_opt1;
+                balt = global.nvda_bc_opt0;
+            }
+            if (bpick == """") bpick = ""option"";
+            if (balt == """") balt = ""option"";
+            if (bfirst == 1)
+            {
+                external_call(global.nvda_speak, ""Choose. "" + bpick + "", or "" + balt + "". Press left or right, then Z. On "" + bpick);
+            }
+            else
+            {
+                external_call(global.nvda_speak, bpick);
+            }
+        }
+    }
+}";
+
+var g = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+g.QueueAppend(Data.Code.ByName("gml_Object_obj_time_Step_1"), gml);
+g.Import();
+Console.WriteLine("Injected IN-BATTLE/DATE heart-choice reader into obj_time Step_1");
+
+}
+
+// ===== ASGORE final kill/spare choice (obj_anybt + obj_fakeheart) =====
+{
+// Undertale accessibility - ASGORE final KILL / SPARE choice (and the reused
+// Flowey post-Asgore button choice).
+// When Asgore's HP drops to <=500, obj_asgoreb spawns obj_asgore_lastcutscene,
+// which (con 10->11) creates a FREE-MOVING soul (obj_fakeheart) and two button
+// boxes (obj_anybt): type 0 = FIGHT/kill on the LEFT, type 1 = SPARE on the RIGHT.
+// You move the soul (arrows / WASD via obj_time dirs) onto a box; touching it sets
+// the box's `on` flag (2-frame, re-set each overlap frame), and Z while on it fires
+// event_user(0) = the kill/spare outcome.  Vanilla gives NO audio, so a blind
+// player can't tell where the boxes are or which one the soul is over.
+//
+// Fix (deliberately faithful - she still moves the soul + presses Z herself, no
+// one-key kill that could wreck a pacifist run):
+//   1. obj_anybt Create  -> one-shot spoken intro on the first box ("Kill left,
+//      spare right, move onto a box and press Z").
+//   2. obj_anybt Step    -> speak the box label ("Kill"/"Spare") the moment the
+//      soul enters it (on goes <=0 -> >0), so she knows what she's on -> press Z.
+//   3. obj_fakeheart Step -> a gmpan panned beep toward the nearest box (pan =
+//      left/right, pitch = up/down) so she can locate/approach them by ear.
+// obj_anybt is also reused in the post-Asgore Flowey scene (type 2/3); labelled
+// generically there.
+
+foreach (var f in new string[] {
+    "external_define","external_call","variable_global_exists","variable_instance_exists",
+    "instance_exists","instance_number","instance_nearest"
+}) Data.Functions.EnsureDefined(f, Data.Strings);
+
+string nvdaBridge = @"
+    if (!variable_global_exists(""nvda_ready""))
+    {
+        global.nvda_init = external_define(""nvda_gm.dll"", ""gmnvda_init"", 0, 0, 1, 1);
+        global.nvda_speak = external_define(""nvda_gm.dll"", ""gmnvda_speak"", 0, 0, 1, 1);
+        external_call(global.nvda_init, """");
+        global.nvda_ready = 1;
+    }";
+
+string panBridge = @"
+    if (!variable_global_exists(""pan_ready""))
+    {
+        global.pan_init = external_define(""gmpan.dll"", ""gmpan_init"", 0, 0, 0);
+        global.pan_beep = external_define(""gmpan.dll"", ""gmpan_beep"", 0, 0, 4, 0, 0, 0, 0);
+        external_call(global.pan_init);
+        global.pan_ready = 1;
+    }";
+
+// ---- 1+2: obj_anybt Create (intro) + Step (label on entry) ----
+string createGml = @"
+{" + nvdaBridge + @"
+    if (instance_number(obj_anybt) == 1)
+    {
+        var _intro = ""Choose. Move your heart onto a box and press Z. You will hear each box as you reach it."";
+        if (type == 0) _intro = ""You can kill or spare him. Kill is on the left. Spare is on the right. Move your heart onto a box, then press Z."";
+        external_call(global.nvda_speak, _intro);
+    }
+}";
+
+string stepGml = @"
+{" + nvdaBridge + @"
+    if (!variable_instance_exists(id, ""nvda_bt_set""))
+    {
+        nvda_bt_set = 1;
+        nvda_laston = 0;
+        nvda_lbl = ""Box"";
+        if (type == 0) nvda_lbl = ""Kill"";
+        else if (type == 1) nvda_lbl = ""Spare"";
+        else if (type == 2) nvda_lbl = ""Fight"";
+        else if (type == 3) nvda_lbl = ""Spare"";
+    }
+    if (on > 0 && nvda_laston <= 0)
+    {
+        external_call(global.nvda_speak, nvda_lbl + "". Press Z."");
+    }
+    nvda_laston = on;
+}";
+
+// ---- 3: obj_fakeheart Step (panned locate beep) ----
+string fhGml = @"
+{" + nvdaBridge + panBridge + @"
+    if (!variable_global_exists(""nvda_fh_init""))
+    {
+        global.nvda_fh_init = 1;
+        global.nvda_fh_timer = 0;
+    }
+    if (global.nvda_fh_timer > 0) global.nvda_fh_timer -= 1;
+    if (movement == 1 && instance_exists(obj_anybt) && global.nvda_fh_timer <= 0)
+    {
+        var _t = instance_nearest(x, y, obj_anybt);
+        if (_t != noone)
+        {
+            var _cx = _t.x + 16;
+            var _cy = _t.y + 10;
+            var _dx = _cx - x;
+            var _dy = _cy - y;
+            var _pan = _dx / 120;
+            if (_pan > 1) _pan = 1;
+            if (_pan < -1) _pan = -1;
+            var _freq = 500 - (_dy * 3);
+            if (_freq < 250) _freq = 250;
+            if (_freq > 800) _freq = 800;
+            external_call(global.pan_beep, _pan, _freq, 70, 0.5);
+            global.nvda_fh_timer = 12;
+        }
+    }
+}";
+
+var g = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+g.QueueAppend(Data.Code.ByName("gml_Object_obj_anybt_Create_0"), createGml);
+g.QueueAppend(Data.Code.ByName("gml_Object_obj_anybt_Step_0"), stepGml);
+g.QueueAppend(Data.Code.ByName("gml_Object_obj_fakeheart_Step_0"), fhGml);
+g.Import();
+Console.WriteLine("Injected ASGORE kill/spare choice reader (obj_anybt + obj_fakeheart)");
+
+}
+
+// ===== inject_sounds.csx : NAVIGATION SOUND EFFECTS (footsteps / wall-bump / door / interact ping) =====
+{
+string[] need = { "audio_play_sound","audio_sound_gain","audio_sound_pitch",
+                  "variable_instance_exists","variable_global_exists",
+                  "instance_nearest","instance_exists","point_distance","abs",
+                  "collision_rectangle" };
+foreach (var f in need) Data.Functions.EnsureDefined(f, Data.Strings);
+
+string createGml = @"
+{
+    nvda_footcd  = 0;
+    nvda_footflip = 0;
+    nvda_bumpcd  = 0;
+    nvda_doorsnd = 0;
+    nvda_rangeid = noone;
+}";
+
+string stepEndGml = @"
+{
+    if (variable_global_exists(""nvda_opt_navsfx"") && global.nvda_opt_navsfx == 0) exit;
+    var FOOT_SOUND    = snd_undynestep;
+    var FOOT_GAIN     = 0.35;
+    var FOOT_INTERVAL = 14;
+    var FOOT_PITCH_A  = 0.85;
+    var FOOT_PITCH_B  = 1.0;
+    var BUMP_SOUND    = snd_hit;
+    var BUMP_GAIN     = 0.45;
+    var BUMP_CD       = 18;
+
+    if (!variable_instance_exists(id, ""nvda_footcd"")) { nvda_footcd = 0; nvda_footflip = 0; nvda_bumpcd = 0; }
+
+    var _free = (movement == 1 && global.interact == 0);
+    var _moved = (x != xprevious || y != yprevious);
+    var _tried = (obj_time.up || obj_time.down || obj_time.left || obj_time.right);
+
+    if (_free && _moved)
+    {
+        if (nvda_footcd <= 0)
+        {
+            var _s = audio_play_sound(FOOT_SOUND, 30, false);
+            audio_sound_gain(_s, FOOT_GAIN, 0);
+            if (nvda_footflip == 0) { audio_sound_pitch(_s, FOOT_PITCH_A); nvda_footflip = 1; }
+            else { audio_sound_pitch(_s, FOOT_PITCH_B); nvda_footflip = 0; }
+            nvda_footcd = FOOT_INTERVAL;
+        }
+    }
+    else
+    {
+        nvda_footcd = 0;
+    }
+    if (nvda_footcd > 0) nvda_footcd -= 1;
+
+    if (_free && _tried && !_moved)
+    {
+        if (nvda_bumpcd <= 0)
+        {
+            var _b = audio_play_sound(BUMP_SOUND, 30, false);
+            audio_sound_gain(_b, BUMP_GAIN, 0);
+            nvda_bumpcd = BUMP_CD;
+        }
+    }
+    if (nvda_bumpcd > 0) nvda_bumpcd -= 1;
+
+    var DOOR_SOUND = snd_bigdoor_open;
+    var DOOR_GAIN  = 0.55;
+    if (!variable_instance_exists(id, ""nvda_doorsnd"")) nvda_doorsnd = 0;
+    var _door = collision_rectangle(bbox_left, bbox_top, bbox_right, bbox_bottom, obj_doorparent, 0, 0);
+    if (_door != noone)
+    {
+        if (nvda_doorsnd == 0)
+        {
+            var _d = audio_play_sound(DOOR_SOUND, 40, false);
+            audio_sound_gain(_d, DOOR_GAIN, 0);
+            nvda_doorsnd = 1;
+        }
+    }
+    else nvda_doorsnd = 0;
+
+    var INT_SOUND   = snd_bell;
+    var INT_GAIN    = 0.45;
+    var INT_RANGE   = 24;
+    var INT_RELEASE = 36;
+    if (!variable_instance_exists(id, ""nvda_rangeid"")) nvda_rangeid = noone;
+    if (global.interact == 0)
+    {
+        var _near = instance_nearest(x, y, obj_interactable);
+        if (_near != noone && instance_exists(_near))
+        {
+            var _nd = point_distance(x, y, _near.x, _near.y);
+            if (_nd <= INT_RANGE)
+            {
+                if (_near != nvda_rangeid)
+                {
+                    var _ic = audio_play_sound(INT_SOUND, 40, false);
+                    audio_sound_gain(_ic, INT_GAIN, 0);
+                    nvda_rangeid = _near;
+                }
+            }
+            else if (nvda_rangeid != noone && _nd > INT_RELEASE)
+            {
+                nvda_rangeid = noone;
+            }
+        }
+        else nvda_rangeid = noone;
+    }
+}";
+
+var g = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+g.QueueAppend(Data.Code.ByName("gml_Object_obj_mainchara_Create_0"), createGml);
+g.QueueAppend(Data.Code.ByName("gml_Object_obj_mainchara_Step_2"), stepEndGml);
+g.Import();
+Console.WriteLine("Injected navigation sound effects: footsteps + wall-bump + door + interact ping");
+}
+
+// ===== inject_musicvol.csx : MUSIC VOLUME CONTROL (N quieter / B louder, spoken, default 50%) =====
+{
+string[] need = { "external_define","external_call","variable_global_exists",
+                  "keyboard_check_pressed","ord","audio_sound_gain","audio_sound_get_gain",
+                  "is_real","round","string" };
+foreach (var f in need) Data.Functions.EnsureDefined(f, Data.Strings);
+
+string bridge = @"
+    if (!variable_global_exists(""nvda_ready""))
+    {
+        global.nvda_init = external_define(""nvda_gm.dll"", ""gmnvda_init"", 0, 0, 1, 1);
+        global.nvda_speak = external_define(""nvda_gm.dll"", ""gmnvda_speak"", 0, 0, 1, 1);
+        external_call(global.nvda_init, """");
+        global.nvda_ready = 1;
+    }";
+
+string gml = @"
+{" + bridge + @"
+    if (!variable_global_exists(""nvda_musicvol"")) global.nvda_musicvol = 0.5;
+
+    var _changed = 0;
+    if (keyboard_check_pressed(ord(""N""))) { global.nvda_musicvol -= 0.1; _changed = 1; }
+    if (keyboard_check_pressed(ord(""B""))) { global.nvda_musicvol += 0.1; _changed = 1; }
+    if (global.nvda_musicvol < 0) global.nvda_musicvol = 0;
+    if (global.nvda_musicvol > 1) global.nvda_musicvol = 1;
+
+    var _have = 0;
+    var _cs = 0;
+    if (variable_global_exists(""currentsong""))
+    {
+        _cs = global.currentsong;
+        if (is_real(_cs) && _cs > 0) _have = 1;
+    }
+
+    if (_changed)
+    {
+        if (_have) audio_sound_gain(_cs, global.nvda_musicvol, 0);
+        var _pct = round(global.nvda_musicvol * 100);
+        if (_pct <= 0) external_call(global.nvda_speak, ""Music off"");
+        else external_call(global.nvda_speak, ""Music "" + string(_pct) + "" percent"");
+    }
+    else if (_have)
+    {
+        if (audio_sound_get_gain(_cs) > (global.nvda_musicvol + 0.001))
+            audio_sound_gain(_cs, global.nvda_musicvol, 0);
+    }
+}";
+
+var g = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+g.QueueAppend(Data.Code.ByName("gml_Object_obj_time_Step_1"), gml);
+g.Import();
+Console.WriteLine("Injected music volume control (N quieter / B louder, default 50%)");
+}
+
+// Shared accessibility-menu DRIVE logic (open/close + navigate + toggle + announce). Injected
+// into BOTH obj_time Step_1 (drives it in the overworld) AND scr_namingscreen (drives it at the
+// title screen, where obj_time's appended code does not reliably run). Exactly one driver runs
+// at a time: obj_time gates this on !instance_exists(obj_intromenu); the title script only runs
+// while obj_intromenu exists. Uses only globals + keyboard, so it is context-independent (the
+// up/down/left/right=0 movement-consume is harmless when run inside obj_intromenu).
+string menuDrive = @"
+    if (!variable_global_exists(""nvda_ready""))
+    {
+        global.nvda_init = external_define(""nvda_gm.dll"", ""gmnvda_init"", 0, 0, 1, 1);
+        global.nvda_speak = external_define(""nvda_gm.dll"", ""gmnvda_speak"", 0, 0, 1, 1);
+        external_call(global.nvda_init, """");
+        global.nvda_ready = 1;
+    }
+    var _announce = 0;
+    var _pre = """";
+    var _maxsel = 6;
+    var _canopen = (variable_global_exists(""interact"") && global.interact == 0
+                    && instance_exists(obj_mainchara) && !instance_exists(obj_battlecontroller));
+    if (!variable_global_exists(""nvda_menu_wasopen"")) global.nvda_menu_wasopen = 0;
+    if (keyboard_check_pressed(ord(""K"")))
+    {
+        if (global.nvda_menu_open == 1) global.nvda_menu_open = 0;
+        else if (_canopen) global.nvda_menu_open = 1;
+    }
+    if (global.nvda_menu_open == 1 && control_check_pressed(1))
+        global.nvda_menu_open = 0;
+    if (global.nvda_menu_open == 1 && global.nvda_menu_wasopen == 0)
+    {
+        global.nvda_menu_sel = 0;
+        _announce = 1;
+        _pre = ""Accessibility menu. Up and down to move, left and right to change. Press K or cancel to close. "";
+    }
+    if (global.nvda_menu_open == 0 && global.nvda_menu_wasopen == 1)
+    {
+        if (instance_exists(obj_mainchara) && !instance_exists(obj_intromenu) && variable_global_exists(""interact"")) global.interact = 0;
+        external_call(global.nvda_speak, ""Accessibility menu closed."");
+    }
+    if (global.nvda_menu_open == 1)
+    {
+        if (instance_exists(obj_mainchara) && !instance_exists(obj_intromenu) && variable_global_exists(""interact"")) global.interact = 99;
+        up = 0; down = 0; left = 0; right = 0;
+        if (keyboard_check_pressed(vk_up))   { global.nvda_menu_sel -= 1; _announce = 1; }
+        if (keyboard_check_pressed(vk_down)) { global.nvda_menu_sel += 1; _announce = 1; }
+        if (global.nvda_menu_sel < 0) global.nvda_menu_sel = _maxsel;
+        if (global.nvda_menu_sel > _maxsel) global.nvda_menu_sel = 0;
+        var _s = global.nvda_menu_sel;
+        var _lr = 0;
+        if (keyboard_check_pressed(vk_right)) _lr = 1;
+        else if (keyboard_check_pressed(vk_left)) _lr = -1;
+        if (_lr != 0)
+        {
+            if (_s == 0) global.nvda_opt_speech = 1 - global.nvda_opt_speech;
+            else if (_s == 1) global.nvda_opt_scan = 1 - global.nvda_opt_scan;
+            else if (_s == 2) global.nvda_opt_skip = 1 - global.nvda_opt_skip;
+            else if (_s == 3) global.nvda_opt_navsfx = 1 - global.nvda_opt_navsfx;
+            else if (_s == 4) global.nvda_opt_combat = 1 - global.nvda_opt_combat;
+            else if (_s == 5)
+            {
+                global.nvda_mode += _lr;
+                if (global.nvda_mode < 0) global.nvda_mode = 2;
+                if (global.nvda_mode > 2) global.nvda_mode = 0;
+                global.nvda_assist = (global.nvda_mode == 0);
+            }
+            else if (_s == 6)
+            {
+                global.nvda_musicvol += (_lr * 0.1);
+                if (global.nvda_musicvol < 0) global.nvda_musicvol = 0;
+                if (global.nvda_musicvol > 1) global.nvda_musicvol = 1;
+                if (variable_global_exists(""currentsong"") && is_real(global.currentsong) && global.currentsong > 0)
+                    audio_sound_gain(global.currentsong, global.nvda_musicvol, 0);
+            }
+            _announce = 1;
+            global.nvda_opt_dirty = 1;
+        }
+    }
+    if (_announce == 1 && global.nvda_menu_open == 1)
+    {
+        var _s2 = global.nvda_menu_sel;
+        var _lbl = """";
+        var _val = """";
+        if (_s2 == 0) { _lbl = ""Screen reading""; if (global.nvda_opt_speech == 1) _val = ""on""; else _val = ""off""; }
+        else if (_s2 == 1) { _lbl = ""Object scanning and guidance""; if (global.nvda_opt_scan == 1) _val = ""on""; else _val = ""off""; }
+        else if (_s2 == 2) { _lbl = ""Puzzle skipping""; if (global.nvda_opt_skip == 1) _val = ""on""; else _val = ""off""; }
+        else if (_s2 == 3) { _lbl = ""Navigation sounds""; if (global.nvda_opt_navsfx == 1) _val = ""on""; else _val = ""off""; }
+        else if (_s2 == 4) { _lbl = ""Combat cues""; if (global.nvda_opt_combat == 1) _val = ""on""; else _val = ""off""; }
+        else if (_s2 == 5)
+        {
+            _lbl = ""Assist mode"";
+            if (global.nvda_mode == 0) _val = ""Assisted, you cannot be defeated"";
+            else if (global.nvda_mode == 1) _val = ""Slow, fights run at half speed"";
+            else _val = ""Normal, you can be defeated"";
+        }
+        else if (_s2 == 6) { _lbl = ""Music volume""; _val = string(round(global.nvda_musicvol * 100)) + "" percent""; }
+        external_call(global.nvda_speak, _pre + _lbl + "", "" + _val);
+    }
+    global.nvda_menu_wasopen = global.nvda_menu_open;
+";
+
+// ===== inject_accessmenu.csx : ACCESSIBILITY OPTIONS MENU (K opens; master control panel) =====
+// One spoken menu to toggle every feature: screen reading, object scanning, puzzle
+// skipping, navigation sounds, combat cues, plus assist mode and music volume.
+// Hosted in obj_time Begin Step (persistent). Opens only in overworld free-roam.
+// Freezes the player via global.interact = 99 (a value no other system reacts to, so it
+// does NOT trigger the C menu at 5; restored to 0 on close). Up/down move, left/right
+// change, K closes. Settings persist in nvda_access.ini (GameMaker save area).
+// Option globals (default 1 = on) are READ by guards added to each feature block; a guard
+// treats a missing global as ON, so features behave normally until first loaded/toggled.
+{
+string[] need = { "external_define","external_call","variable_global_exists",
+                  "keyboard_check_pressed","ord","instance_exists","is_real","round","string",
+                  "audio_sound_gain","ini_open","ini_close","ini_read_real","ini_write_real",
+                  "control_check_pressed" };
+foreach (var f in need) Data.Functions.EnsureDefined(f, Data.Strings);
+
+string bridge = @"
+    if (!variable_global_exists(""nvda_ready""))
+    {
+        global.nvda_init = external_define(""nvda_gm.dll"", ""gmnvda_init"", 0, 0, 1, 1);
+        global.nvda_speak = external_define(""nvda_gm.dll"", ""gmnvda_speak"", 0, 0, 1, 1);
+        external_call(global.nvda_init, """");
+        global.nvda_ready = 1;
+    }";
+
+string gml = @"
+{" + bridge + @"
+    // ---- one-time load of saved options from ini (defaults = on) ----
+    if (!variable_global_exists(""nvda_opt_loaded""))
+    {
+        ini_open(""nvda_access.ini"");
+        global.nvda_opt_speech = ini_read_real(""options"", ""speech"", 1);
+        global.nvda_opt_scan   = ini_read_real(""options"", ""scan"",   1);
+        global.nvda_opt_skip   = ini_read_real(""options"", ""skip"",   1);
+        global.nvda_opt_navsfx = ini_read_real(""options"", ""navsfx"", 1);
+        global.nvda_opt_combat = ini_read_real(""options"", ""combat"", 1);
+        global.nvda_mode       = ini_read_real(""options"", ""mode"",   0);
+        global.nvda_musicvol   = ini_read_real(""options"", ""music"",  0.5);
+        ini_close();
+        global.nvda_assist = (global.nvda_mode == 0);
+        global.nvda_menu_open = 0;
+        global.nvda_menu_sel = 0;
+        global.nvda_menu_wasopen = 0;
+        global.nvda_opt_dirty = 0;
+        global.nvda_opt_loaded = 1;
+    }
+
+    // Flush changed options to ini ONLY in the overworld (obj_mainchara present). The title
+    // menu (scr_namingscreen) keeps undertale.ini perpetually OPEN and GameMaker allows only
+    // ONE ini open at a time, so writing nvda_access.ini there corrupts the game's ini and
+    // breaks the title menu. Defer the disk write until we're safely in normal gameplay.
+    if (variable_global_exists(""nvda_opt_dirty"") && global.nvda_opt_dirty == 1
+        && instance_exists(obj_mainchara) && !instance_exists(obj_intromenu))
+    {
+        ini_open(""nvda_access.ini"");
+        ini_write_real(""options"", ""speech"", global.nvda_opt_speech);
+        ini_write_real(""options"", ""scan"",   global.nvda_opt_scan);
+        ini_write_real(""options"", ""skip"",   global.nvda_opt_skip);
+        ini_write_real(""options"", ""navsfx"", global.nvda_opt_navsfx);
+        ini_write_real(""options"", ""combat"", global.nvda_opt_combat);
+        ini_write_real(""options"", ""mode"",   global.nvda_mode);
+        ini_write_real(""options"", ""music"",  global.nvda_musicvol);
+        ini_close();
+        global.nvda_opt_dirty = 0;
+    }
+
+    // DRIVE the menu here ONLY in the overworld; at the title (obj_intromenu present) the
+    // scr_namingscreen prepend driver runs it instead. obj_time Step_1 does NOT reliably run
+    // at room_intromenu, so driving the title menu from obj_time froze it (undriven overlay).
+    if (!instance_exists(obj_intromenu))
+    {
+    var _announce = 0;
+    var _pre = """";
+    var _maxsel = 6;
+
+    var _canopen = (variable_global_exists(""interact"") && global.interact == 0
+                    && instance_exists(obj_mainchara) && !instance_exists(obj_battlecontroller));
+
+    if (!variable_global_exists(""nvda_menu_wasopen"")) global.nvda_menu_wasopen = 0;
+
+    // ---- open / close. K toggles (open only in overworld free-roam); X closes; the
+    // TITLE menu can also open it by setting global.nvda_menu_open = 1 itself. ----
+    if (keyboard_check_pressed(ord(""K"")))
+    {
+        if (global.nvda_menu_open == 1) global.nvda_menu_open = 0;
+        else if (_canopen) global.nvda_menu_open = 1;
+    }
+    if (global.nvda_menu_open == 1 && control_check_pressed(1))   // X = cancel = close
+        global.nvda_menu_open = 0;
+
+    // edge: just opened (via K here OR by the title-menu selection) -> announce intro
+    if (global.nvda_menu_open == 1 && global.nvda_menu_wasopen == 0)
+    {
+        global.nvda_menu_sel = 0;
+        _announce = 1;
+        _pre = ""Accessibility menu. Up and down to move, left and right to change. Press K or cancel to close. "";
+    }
+    // edge: just closed -> unfreeze the player (if any) and confirm
+    if (global.nvda_menu_open == 0 && global.nvda_menu_wasopen == 1)
+    {
+        if (instance_exists(obj_mainchara) && !instance_exists(obj_intromenu) && variable_global_exists(""interact"")) global.interact = 0;
+        external_call(global.nvda_speak, ""Accessibility menu closed."");
+    }
+
+    // ---- while open: drive the menu, freeze the player if there is one ----
+    if (global.nvda_menu_open == 1)
+    {
+        if (instance_exists(obj_mainchara) && !instance_exists(obj_intromenu) && variable_global_exists(""interact"")) global.interact = 99;
+        up = 0; down = 0; left = 0; right = 0;   // consume movement (we are obj_time)
+
+        if (keyboard_check_pressed(vk_up))   { global.nvda_menu_sel -= 1; _announce = 1; }
+        if (keyboard_check_pressed(vk_down)) { global.nvda_menu_sel += 1; _announce = 1; }
+        if (global.nvda_menu_sel < 0) global.nvda_menu_sel = _maxsel;
+        if (global.nvda_menu_sel > _maxsel) global.nvda_menu_sel = 0;
+
+        var _s = global.nvda_menu_sel;
+        var _lr = 0;
+        if (keyboard_check_pressed(vk_right)) _lr = 1;
+        else if (keyboard_check_pressed(vk_left)) _lr = -1;
+
+        if (_lr != 0)
+        {
+            if (_s == 0) global.nvda_opt_speech = 1 - global.nvda_opt_speech;
+            else if (_s == 1) global.nvda_opt_scan = 1 - global.nvda_opt_scan;
+            else if (_s == 2) global.nvda_opt_skip = 1 - global.nvda_opt_skip;
+            else if (_s == 3) global.nvda_opt_navsfx = 1 - global.nvda_opt_navsfx;
+            else if (_s == 4) global.nvda_opt_combat = 1 - global.nvda_opt_combat;
+            else if (_s == 5)
+            {
+                global.nvda_mode += _lr;
+                if (global.nvda_mode < 0) global.nvda_mode = 2;
+                if (global.nvda_mode > 2) global.nvda_mode = 0;
+                global.nvda_assist = (global.nvda_mode == 0);
+            }
+            else if (_s == 6)
+            {
+                global.nvda_musicvol += (_lr * 0.1);
+                if (global.nvda_musicvol < 0) global.nvda_musicvol = 0;
+                if (global.nvda_musicvol > 1) global.nvda_musicvol = 1;
+                if (variable_global_exists(""currentsong"") && is_real(global.currentsong) && global.currentsong > 0)
+                    audio_sound_gain(global.currentsong, global.nvda_musicvol, 0);
+            }
+            _announce = 1;
+            global.nvda_opt_dirty = 1;   // mark dirty; the deferred flush above writes it
+                                         // safely (never while the game holds its ini open)
+        }
+    }
+
+    // ---- speak the focused option + its current value ----
+    if (_announce == 1 && global.nvda_menu_open == 1)
+    {
+        var _s2 = global.nvda_menu_sel;
+        var _lbl = """";
+        var _val = """";
+        if (_s2 == 0) { _lbl = ""Screen reading""; if (global.nvda_opt_speech == 1) _val = ""on""; else _val = ""off""; }
+        else if (_s2 == 1) { _lbl = ""Object scanning and guidance""; if (global.nvda_opt_scan == 1) _val = ""on""; else _val = ""off""; }
+        else if (_s2 == 2) { _lbl = ""Puzzle skipping""; if (global.nvda_opt_skip == 1) _val = ""on""; else _val = ""off""; }
+        else if (_s2 == 3) { _lbl = ""Navigation sounds""; if (global.nvda_opt_navsfx == 1) _val = ""on""; else _val = ""off""; }
+        else if (_s2 == 4) { _lbl = ""Combat cues""; if (global.nvda_opt_combat == 1) _val = ""on""; else _val = ""off""; }
+        else if (_s2 == 5)
+        {
+            _lbl = ""Assist mode"";
+            if (global.nvda_mode == 0) _val = ""Assisted, you cannot be defeated"";
+            else if (global.nvda_mode == 1) _val = ""Slow, fights run at half speed"";
+            else _val = ""Normal, you can be defeated"";
+        }
+        else if (_s2 == 6) { _lbl = ""Music volume""; _val = string(round(global.nvda_musicvol * 100)) + "" percent""; }
+        external_call(global.nvda_speak, _pre + _lbl + "", "" + _val);
+    }
+
+    global.nvda_menu_wasopen = global.nvda_menu_open;
+    }
+}";
+
+var g = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+g.QueueAppend(Data.Code.ByName("gml_Object_obj_time_Step_1"), gml);
+g.Import();
+Console.WriteLine("Injected accessibility options menu (K opens; 7 options; ini-persisted)");
+}
+
+// ===== TITLE-SCREEN ACCESSIBILITY OPTION: add a 4th item to scr_namingscreen's menu =====
+// naming==3 is the load/title menu. We add one more cursor position:
+//   with a save:    Continue(0) / Reset(1) / Settings(2) / Accessibility(3)
+//   without a save: Begin Game(0) / Settings(1) / Accessibility(2)
+// Down/up reach the new item (the game clears the arrow keys here, so we MUST extend the
+// game's own nav handlers, not just append). Confirming on it opens the accessibility menu
+// (the naming announcer append sets global.nvda_menu_open=1 on that action; obj_time drives
+// it). While the overlay is open we PREPEND an early-exit so the title script doesn't move
+// its own cursor from the same arrow presses.
+{
+    foreach (var f in new string[] { "variable_global_exists", "external_define", "external_call",
+             "keyboard_check_pressed", "ord", "control_check_pressed", "is_real", "round", "string",
+             "audio_sound_gain" })
+        Data.Functions.EnsureDefined(f, Data.Strings);
+    var gt = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+    gt.ThrowOnNoOpFindReplace = true;
+    var nm = Data.Code.ByName("gml_Script_scr_namingscreen");
+
+    // (a) DRIVE the accessibility overlay from INSIDE scr_namingscreen, which provably runs
+    // every frame at the title (it reads the title arrow keys). obj_time Step_1 does NOT run
+    // at room_intromenu, so the overlay must be driven here. While open we drive it then exit
+    // (so the title's own cursor doesn't move from the same arrows = freeze). Option globals
+    // are loaded once at boot by obj_time (room 0, before the title); we still guard reads.
+    // We NEVER touch any ini here (the game holds undertale.ini open at the title and GM allows
+    // only one open ini) -> changes set nvda_opt_dirty; obj_time flushes them later in the
+    // overworld. This is the same option logic as the obj_time (overworld) driver.
+    string titleDrive = @"
+    if (variable_global_exists(""nvda_menu_open"") && global.nvda_menu_open == 1)
+    {
+        if (!variable_global_exists(""nvda_ready""))
+        {
+            global.nvda_init = external_define(""nvda_gm.dll"", ""gmnvda_init"", 0, 0, 1, 1);
+            global.nvda_speak = external_define(""nvda_gm.dll"", ""gmnvda_speak"", 0, 0, 1, 1);
+            external_call(global.nvda_init, """");
+            global.nvda_ready = 1;
+        }
+        if (!variable_global_exists(""nvda_menu_wasopen"")) global.nvda_menu_wasopen = 0;
+        if (!variable_global_exists(""nvda_menu_sel"")) global.nvda_menu_sel = 0;
+        if (!variable_global_exists(""nvda_opt_speech"")) global.nvda_opt_speech = 1;
+        if (!variable_global_exists(""nvda_opt_scan""))   global.nvda_opt_scan = 1;
+        if (!variable_global_exists(""nvda_opt_skip""))   global.nvda_opt_skip = 1;
+        if (!variable_global_exists(""nvda_opt_navsfx"")) global.nvda_opt_navsfx = 1;
+        if (!variable_global_exists(""nvda_opt_combat"")) global.nvda_opt_combat = 1;
+        if (!variable_global_exists(""nvda_mode""))       global.nvda_mode = 0;
+        if (!variable_global_exists(""nvda_musicvol""))   global.nvda_musicvol = 0.5;
+        if (!variable_global_exists(""nvda_assist""))     global.nvda_assist = 1;
+        if (!variable_global_exists(""nvda_opt_dirty""))  global.nvda_opt_dirty = 0;
+        var _announce = 0;
+        var _pre = """";
+        var _maxsel = 6;
+        // close with X (cancel) or K
+        if (control_check_pressed(1) || keyboard_check_pressed(ord(""K"")))
+        {
+            global.nvda_menu_open = 0;
+            global.nvda_menu_wasopen = 0;
+            external_call(global.nvda_speak, ""Accessibility menu closed."");
+            exit;
+        }
+        // edge: just opened -> intro + first option
+        if (global.nvda_menu_wasopen == 0)
+        {
+            global.nvda_menu_sel = 0;
+            _announce = 1;
+            _pre = ""Accessibility menu. Up and down to move, left and right to change. Press X or K to close. "";
+        }
+        if (keyboard_check_pressed(vk_up))   { global.nvda_menu_sel -= 1; _announce = 1; }
+        if (keyboard_check_pressed(vk_down)) { global.nvda_menu_sel += 1; _announce = 1; }
+        if (global.nvda_menu_sel < 0) global.nvda_menu_sel = _maxsel;
+        if (global.nvda_menu_sel > _maxsel) global.nvda_menu_sel = 0;
+        var _s = global.nvda_menu_sel;
+        var _lr = 0;
+        if (keyboard_check_pressed(vk_right)) _lr = 1;
+        else if (keyboard_check_pressed(vk_left)) _lr = -1;
+        if (_lr != 0)
+        {
+            if (_s == 0) global.nvda_opt_speech = 1 - global.nvda_opt_speech;
+            else if (_s == 1) global.nvda_opt_scan = 1 - global.nvda_opt_scan;
+            else if (_s == 2) global.nvda_opt_skip = 1 - global.nvda_opt_skip;
+            else if (_s == 3) global.nvda_opt_navsfx = 1 - global.nvda_opt_navsfx;
+            else if (_s == 4) global.nvda_opt_combat = 1 - global.nvda_opt_combat;
+            else if (_s == 5)
+            {
+                global.nvda_mode += _lr;
+                if (global.nvda_mode < 0) global.nvda_mode = 2;
+                if (global.nvda_mode > 2) global.nvda_mode = 0;
+                global.nvda_assist = (global.nvda_mode == 0);
+            }
+            else if (_s == 6)
+            {
+                global.nvda_musicvol += (_lr * 0.1);
+                if (global.nvda_musicvol < 0) global.nvda_musicvol = 0;
+                if (global.nvda_musicvol > 1) global.nvda_musicvol = 1;
+                if (variable_global_exists(""currentsong"") && is_real(global.currentsong) && global.currentsong > 0)
+                    audio_sound_gain(global.currentsong, global.nvda_musicvol, 0);
+            }
+            _announce = 1;
+            global.nvda_opt_dirty = 1;
+        }
+        if (_announce == 1)
+        {
+            var _s2 = global.nvda_menu_sel;
+            var _lbl = """";
+            var _val = """";
+            if (_s2 == 0) { _lbl = ""Screen reading""; if (global.nvda_opt_speech == 1) _val = ""on""; else _val = ""off""; }
+            else if (_s2 == 1) { _lbl = ""Object scanning and guidance""; if (global.nvda_opt_scan == 1) _val = ""on""; else _val = ""off""; }
+            else if (_s2 == 2) { _lbl = ""Puzzle skipping""; if (global.nvda_opt_skip == 1) _val = ""on""; else _val = ""off""; }
+            else if (_s2 == 3) { _lbl = ""Navigation sounds""; if (global.nvda_opt_navsfx == 1) _val = ""on""; else _val = ""off""; }
+            else if (_s2 == 4) { _lbl = ""Combat cues""; if (global.nvda_opt_combat == 1) _val = ""on""; else _val = ""off""; }
+            else if (_s2 == 5)
+            {
+                _lbl = ""Assist mode"";
+                if (global.nvda_mode == 0) _val = ""Assisted, you cannot be defeated"";
+                else if (global.nvda_mode == 1) _val = ""Slow, fights run at half speed"";
+                else _val = ""Normal, you can be defeated"";
+            }
+            else if (_s2 == 6) { _lbl = ""Music volume""; _val = string(round(global.nvda_musicvol * 100)) + "" percent""; }
+            external_call(global.nvda_speak, _pre + _lbl + "", "" + _val);
+        }
+        global.nvda_menu_wasopen = 1;
+        exit;
+    }
+";
+    gt.QueuePrepend(nm, titleDrive);
+
+    // (b) Save-exists DOWN: Settings(2) -> Accessibility(3) (keep {0,1} -> 2).
+    gt.QueueRegexFindReplace(nm,
+        @"if \(selected3 == 0 \|\| selected3 == 1\)\s*\{\s*selected3 = 2;\s*\}",
+        "if (selected3 == 0 || selected3 == 1)\n{\nselected3 = 2;\n}\nelse if (selected3 == 2)\n{\nselected3 = 3;\n}");
+
+    // (c) Save-exists UP: Accessibility(3) -> Settings(2) (keep Settings(2) -> 0).
+    gt.QueueRegexFindReplace(nm,
+        @"if \(selected3 == 2\)\s*\{\s*selected3 = 0;\s*\}",
+        "if (selected3 == 3)\n{\nselected3 = 2;\n}\nelse if (selected3 == 2)\n{\nselected3 = 0;\n}");
+
+    // (d) No-save DOWN: Settings(1) -> Accessibility(2) (keep Begin(0) -> 1).
+    gt.QueueRegexFindReplace(nm,
+        @"keyboard_check_pressed\(vk_down\)\)\s*\{\s*if \(selected3 == 0\)\s*\{\s*selected3 = 1;\s*\}\s*\}",
+        "keyboard_check_pressed(vk_down))\n{\nif (selected3 == 0)\n{\nselected3 = 1;\n}\nelse if (selected3 == 1)\n{\nselected3 = 2;\n}\n}");
+
+    // (e) No-save UP: Accessibility(2) -> Settings(1) (keep Settings(1) -> 0).
+    gt.QueueRegexFindReplace(nm,
+        @"keyboard_check_pressed\(vk_up\)\)\s*\{\s*if \(selected3 == 1\)\s*\{\s*selected3 = 0;\s*\}\s*\}",
+        "keyboard_check_pressed(vk_up))\n{\nif (selected3 == 1)\n{\nselected3 = 0;\n}\nelse if (selected3 == 2)\n{\nselected3 = 1;\n}\n}");
+
+    gt.Import();
+    Console.WriteLine("Injected TITLE-SCREEN accessibility option (4th item in naming==3 menu + freeze guard)");
+}
+
+// ===== AUTOWALK (V): grid-pathfind + walk to the selected scanner target =====
+// Press V to walk to whatever is currently selected in the object scanner (global.nvda_sel,
+// chosen with T/R). Press V again, press any WASD/arrow, leave free-roam, or arrive = stop.
+// Uses GameMaker's mp_grid A* to route AROUND walls (obj_solidparent) and hazards (spikes,
+// holes) -> if it genuinely can't reach, it says "No path found". Steering is done by setting
+// obj_time's up/down/left/right movement flags toward each path node, so the game's own wall
+// collision stays as a safety net. Hosted in obj_time Step_1 (Begin Step) AFTER the WASD block
+// so it overrides the movement flags for the frame. Gated to overworld free-roam + scan option.
+{
+    foreach (var f in new string[] { "external_call","variable_global_exists","instance_exists",
+             "keyboard_check","keyboard_check_pressed","ord","point_distance","abs","string","ceil",
+             "mp_grid_create","mp_grid_destroy","mp_grid_add_rectangle","mp_grid_path","mp_grid_clear_all",
+             "mp_grid_clear_rectangle","instance_number",
+             "path_add","path_delete","path_get_number","path_get_point_x","path_get_point_y" })
+        Data.Functions.EnsureDefined(f, Data.Strings);
+
+    string aw = @"
+{
+    if (!variable_global_exists(""nvda_walk_active""))
+    {
+        global.nvda_walk_active = 0;
+        global.nvda_walk_grid = -1;
+        global.nvda_walk_path = -1;
+        global.nvda_walk_node = 0;
+        global.nvda_walk_stuck = 0;
+        global.nvda_walk_px = 0;
+        global.nvda_walk_py = 0;
+        global.nvda_walk_lastdir = """";
+        global.nvda_walk_skips = 0;
+    }
+    if (!variable_global_exists(""nvda_ready""))
+    {
+        global.nvda_init = external_define(""nvda_gm.dll"", ""gmnvda_init"", 0, 0, 1, 1);
+        global.nvda_speak = external_define(""nvda_gm.dll"", ""gmnvda_speak"", 0, 0, 1, 1);
+        external_call(global.nvda_init, """");
+        global.nvda_ready = 1;
+    }
+
+    var _scan_on = (!variable_global_exists(""nvda_opt_scan"") || global.nvda_opt_scan == 1);
+    var _aw_ok = (instance_exists(obj_mainchara) && variable_global_exists(""interact"")
+                  && global.interact == 0 && !instance_exists(obj_battlecontroller) && _scan_on);
+    var _manual = (keyboard_check(ord(""W"")) || keyboard_check(ord(""A"")) || keyboard_check(ord(""S""))
+                   || keyboard_check(ord(""D"")) || keyboard_check(vk_up) || keyboard_check(vk_down)
+                   || keyboard_check(vk_left) || keyboard_check(vk_right));
+
+    // ---- V pressed: start, or stop if already walking ----
+    if (keyboard_check_pressed(ord(""V"")) && _aw_ok)
+    {
+        if (global.nvda_walk_active == 1)
+        {
+            if (global.nvda_walk_grid >= 0) mp_grid_destroy(global.nvda_walk_grid);
+            if (global.nvda_walk_path >= 0) path_delete(global.nvda_walk_path);
+            global.nvda_walk_grid = -1; global.nvda_walk_path = -1;
+            global.nvda_walk_active = 0; global.nvda_walk_node = 0;
+            up = 0; down = 0; left = 0; right = 0;
+            external_call(global.nvda_speak, ""Stopped."");
+        }
+        else if (!(variable_global_exists(""nvda_sel"") && global.nvda_sel != noone && instance_exists(global.nvda_sel)))
+        {
+            external_call(global.nvda_speak, ""No target selected. Press T to choose one."");
+        }
+        else
+        {
+            var _tg = global.nvda_sel;
+            var _sx = obj_mainchara.x; var _sy = obj_mainchara.y;
+            var _tx = _tg.x; var _ty = _tg.y;
+            if (point_distance(_sx, _sy, _tx, _ty) < 14)
+            {
+                external_call(global.nvda_speak, ""You are already there."");
+            }
+            else
+            {
+                var _cell = 20;
+                var _cols = ceil(room_width / _cell); var _rows = ceil(room_height / _cell);
+                if (global.nvda_walk_grid >= 0) mp_grid_destroy(global.nvda_walk_grid);
+                if (global.nvda_walk_path >= 0) path_delete(global.nvda_walk_path);
+                var _path = path_add();
+                var _grid = mp_grid_create(0, 0, _cols, _rows, _cell, _cell);
+                var _wallcount = 0;
+                with (obj_solidparent) _wallcount += 1;
+                // Pass 1: inflate walls by a small margin so the path keeps off them (the player
+                // has width; a path hugging a wall makes the body clip it). diagonal=0 -> the path
+                // is axis-aligned (down-then-left), matching the one-axis-at-a-time follower below.
+                // obstacles = walls (obj_solidparent) AND solid interactables (obj_solidnpcparent:
+                // signs/NPCs/save points/pickups) so the path avoids them, + spikes/holes. Then we
+                // CLEAR the destination's own cell + the start cell so mp_grid_path is allowed to
+                // route up TO the (solid) target and FROM a spot pressed against a wall.
+                var _m = 4;
+                with (obj_solidparent)     mp_grid_add_rectangle(_grid, bbox_left - _m, bbox_top - _m, bbox_right + _m, bbox_bottom + _m);
+                with (obj_solidnpcparent)  mp_grid_add_rectangle(_grid, bbox_left - _m, bbox_top - _m, bbox_right + _m, bbox_bottom + _m);
+                with (obj_spiketile1)      mp_grid_add_rectangle(_grid, bbox_left - _m, bbox_top - _m, bbox_right + _m, bbox_bottom + _m);
+                with (obj_spiketile2)      mp_grid_add_rectangle(_grid, bbox_left - _m, bbox_top - _m, bbox_right + _m, bbox_bottom + _m);
+                with (obj_spikes_room)     mp_grid_add_rectangle(_grid, bbox_left - _m, bbox_top - _m, bbox_right + _m, bbox_bottom + _m);
+                with (obj_holedown)        mp_grid_add_rectangle(_grid, bbox_left - _m, bbox_top - _m, bbox_right + _m, bbox_bottom + _m);
+                with (obj_superdrophole)   mp_grid_add_rectangle(_grid, bbox_left - _m, bbox_top - _m, bbox_right + _m, bbox_bottom + _m);
+                mp_grid_clear_rectangle(_grid, _tg.bbox_left - 22, _tg.bbox_top - 22, _tg.bbox_right + 22, _tg.bbox_bottom + 22);
+                mp_grid_clear_rectangle(_grid, _sx - 14, _sy - 14, _sx + 14, _sy + 14);
+                var _found = mp_grid_path(_grid, _path, _sx, _sy, _tx, _ty, 0);
+                if (!_found)
+                {
+                    // Pass 2: no margin (handles tight corridors + starting pressed against a wall).
+                    mp_grid_clear_all(_grid);
+                    with (obj_solidparent)     mp_grid_add_rectangle(_grid, bbox_left, bbox_top, bbox_right, bbox_bottom);
+                    with (obj_solidnpcparent)  mp_grid_add_rectangle(_grid, bbox_left, bbox_top, bbox_right, bbox_bottom);
+                    with (obj_spiketile1)      mp_grid_add_rectangle(_grid, bbox_left, bbox_top, bbox_right, bbox_bottom);
+                    with (obj_spiketile2)      mp_grid_add_rectangle(_grid, bbox_left, bbox_top, bbox_right, bbox_bottom);
+                    with (obj_spikes_room)     mp_grid_add_rectangle(_grid, bbox_left, bbox_top, bbox_right, bbox_bottom);
+                    with (obj_holedown)        mp_grid_add_rectangle(_grid, bbox_left, bbox_top, bbox_right, bbox_bottom);
+                    with (obj_superdrophole)   mp_grid_add_rectangle(_grid, bbox_left, bbox_top, bbox_right, bbox_bottom);
+                    mp_grid_clear_rectangle(_grid, _tg.bbox_left - 22, _tg.bbox_top - 22, _tg.bbox_right + 22, _tg.bbox_bottom + 22);
+                    mp_grid_clear_rectangle(_grid, _sx - 14, _sy - 14, _sx + 14, _sy + 14);
+                    _found = mp_grid_path(_grid, _path, _sx, _sy, _tx, _ty, 0);
+                }
+                if (_found)
+                {
+                    global.nvda_walk_grid = _grid;
+                    global.nvda_walk_path = _path;
+                    global.nvda_walk_active = 1;
+                    global.nvda_walk_node = 0;
+                    global.nvda_walk_stuck = 0;
+                    global.nvda_walk_px = _sx; global.nvda_walk_py = _sy;
+                    global.nvda_walk_lastdir = """";
+                    global.nvda_walk_skips = 0;
+                    external_call(global.nvda_speak, ""Walking."");
+                }
+                else
+                {
+                    mp_grid_destroy(_grid);
+                    path_delete(_path);
+                    global.nvda_walk_grid = -1; global.nvda_walk_path = -1;
+                    external_call(global.nvda_speak, ""No path found."");
+                }
+            }
+        }
+    }
+
+    // ---- active: steer toward the next path node each frame ----
+    if (global.nvda_walk_active == 1)
+    {
+        if (!_aw_ok)
+        {
+            if (global.nvda_walk_grid >= 0) mp_grid_destroy(global.nvda_walk_grid);
+            if (global.nvda_walk_path >= 0) path_delete(global.nvda_walk_path);
+            global.nvda_walk_grid = -1; global.nvda_walk_path = -1;
+            global.nvda_walk_active = 0; global.nvda_walk_node = 0;
+        }
+        else if (_manual)
+        {
+            if (global.nvda_walk_grid >= 0) mp_grid_destroy(global.nvda_walk_grid);
+            if (global.nvda_walk_path >= 0) path_delete(global.nvda_walk_path);
+            global.nvda_walk_grid = -1; global.nvda_walk_path = -1;
+            global.nvda_walk_active = 0; global.nvda_walk_node = 0;
+            external_call(global.nvda_speak, ""Stopped."");
+        }
+        else
+        {
+            var _p = global.nvda_walk_path;
+            var _mcx = obj_mainchara.x; var _mcy = obj_mainchara.y;
+            var _total = path_get_number(_p);
+            var _n = global.nvda_walk_node;
+            var _arrived = 0;
+
+            // reached the current node? advance.
+            if (_n < _total)
+            {
+                var _nx = path_get_point_x(_p, _n);
+                var _ny = path_get_point_y(_p, _n);
+                if (point_distance(_mcx, _mcy, _nx, _ny) < 14)
+                {
+                    global.nvda_walk_node += 1;
+                    _n = global.nvda_walk_node;
+                    global.nvda_walk_skips = 0;
+                }
+            }
+
+            // target proximity = arrived (handles the final node + slight overshoot)
+            var _distT = 99999;
+            if (variable_global_exists(""nvda_sel"") && global.nvda_sel != noone && instance_exists(global.nvda_sel))
+                _distT = point_distance(_mcx, _mcy, global.nvda_sel.x, global.nvda_sel.y);
+            if (_distT < 12) _arrived = 1;
+            if (_n >= _total) _arrived = 1;
+
+            if (_arrived == 1)
+            {
+                if (global.nvda_walk_grid >= 0) mp_grid_destroy(global.nvda_walk_grid);
+                if (global.nvda_walk_path >= 0) path_delete(global.nvda_walk_path);
+                global.nvda_walk_grid = -1; global.nvda_walk_path = -1;
+                global.nvda_walk_active = 0; global.nvda_walk_node = 0;
+                up = 0; down = 0; left = 0; right = 0;
+                external_call(global.nvda_speak, ""Arrived."");
+            }
+            else
+            {
+                var _nx2 = path_get_point_x(_p, _n);
+                var _ny2 = path_get_point_y(_p, _n);
+                var _ddx = _nx2 - _mcx;
+                var _ddy = _ny2 - _mcy;
+                // ONE axis at a time (never diagonal) so a corner step can't clip a wall and get
+                // both x and y reverted by the game's collision. Close the bigger gap first; once
+                // that axis is aligned, move the other. = clean down-then-left corridor following.
+                up = 0; down = 0; left = 0; right = 0;
+                if (abs(_ddx) >= abs(_ddy))
+                {
+                    if (_ddx > 2) right = 1;
+                    else if (_ddx < -2) left = 1;
+                    else if (_ddy > 2) down = 1;
+                    else if (_ddy < -2) up = 1;
+                }
+                else
+                {
+                    if (_ddy > 2) down = 1;
+                    else if (_ddy < -2) up = 1;
+                    else if (_ddx > 2) right = 1;
+                    else if (_ddx < -2) left = 1;
+                }
+
+                // If the body can't reach a cell-center waypoint (a wall is in the way), SKIP to
+                // the next waypoint instead of grinding into the wall -> this flows it around
+                // corners. Only truly give up after many skips in a row (genuinely boxed in).
+                if (abs(_mcx - global.nvda_walk_px) < 1 && abs(_mcy - global.nvda_walk_py) < 1)
+                    global.nvda_walk_stuck += 1;
+                else
+                    global.nvda_walk_stuck = 0;
+                global.nvda_walk_px = _mcx; global.nvda_walk_py = _mcy;
+                if (global.nvda_walk_stuck > 6)
+                {
+                    if (_distT < 30)
+                    {
+                        // adjacent to a solid target = arrived (can't stand inside a sign/NPC)
+                        if (global.nvda_walk_grid >= 0) mp_grid_destroy(global.nvda_walk_grid);
+                        if (global.nvda_walk_path >= 0) path_delete(global.nvda_walk_path);
+                        global.nvda_walk_grid = -1; global.nvda_walk_path = -1;
+                        global.nvda_walk_active = 0; global.nvda_walk_node = 0;
+                        up = 0; down = 0; left = 0; right = 0;
+                        external_call(global.nvda_speak, ""Arrived."");
+                    }
+                    else
+                    {
+                        global.nvda_walk_stuck = 0;
+                        global.nvda_walk_node += 1;          // skip the unreachable waypoint
+                        global.nvda_walk_skips += 1;
+                        if (global.nvda_walk_node >= _total || global.nvda_walk_skips > 16)
+                        {
+                            if (global.nvda_walk_grid >= 0) mp_grid_destroy(global.nvda_walk_grid);
+                            if (global.nvda_walk_path >= 0) path_delete(global.nvda_walk_path);
+                            global.nvda_walk_grid = -1; global.nvda_walk_path = -1;
+                            global.nvda_walk_active = 0; global.nvda_walk_node = 0;
+                            up = 0; down = 0; left = 0; right = 0;
+                            if (_distT < 40) external_call(global.nvda_speak, ""Arrived."");
+                            else external_call(global.nvda_speak, ""Path blocked. Stopping."");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}";
+    var awg = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+    awg.QueueAppend(Data.Code.ByName("gml_Object_obj_time_Step_1"), aw);
+    awg.Import();
+    Console.WriteLine("Injected AUTOWALK (V key; mp_grid pathfinding to selected scanner target)");
+}
+
+// ===== BLUE SOUL (jump) cue — obj_heart movement==2: bone sonar so you know WHEN to jump =====
+// Blue soul = heart sits on a floor, left/right walk along it, UP = jump (vspeed=-6), gravity
+// pulls it back down. Papyrus's bones (the blt_parent_noborder family incl. blt_sizebone) slide
+// horizontally at floor level; you hop over them. CUE: find the nearest bone whose body overlaps
+// the GROUNDED-heart's level and is approaching, then gmpan-beep with RISING pitch + FASTER rate
+// as it nears (panned to the side it comes from) -> jump (up) when the pitch peaks. Same scheme
+// as the FIGHT attack-bar + green-shield cue she liked. Gated movement==2 + combat-cues option;
+// suppressed mid-jump. Death already prevented by Assist (M) mode while learning.
+// v1 = down-gravity blue soul (movement==2, Papyrus); rotated variants 11/12/13 deferred.
+{
+    foreach (var f in new string[] { "external_define","external_call","variable_global_exists",
+             "abs","round" })
+        Data.Functions.EnsureDefined(f, Data.Strings);
+
+    string bs = @"
+{
+    if (movement == 2 && global.mnfight == 2
+        && (!variable_global_exists(""nvda_opt_combat"") || global.nvda_opt_combat == 1))
+    {
+        if (!variable_global_exists(""pan_ready""))
+        {
+            global.pan_init = external_define(""gmpan.dll"", ""gmpan_init"", 0, 0, 0);
+            global.pan_beep = external_define(""gmpan.dll"", ""gmpan_beep"", 0, 0, 4, 0, 0, 0, 0);
+            external_call(global.pan_init);
+            global.pan_ready = 1;
+        }
+        if (!variable_global_exists(""nvda_jumptimer"")) global.nvda_jumptimer = 0;
+
+        var _floory = global.idealborder[3] - 16;   // grounded-heart centre line
+        var _grounded = (jumpstage != 2);            // mid-jump = already committed, stay quiet
+        var _bestgap = 1000;
+        var _bestdx = 0;
+        var _found = 0;
+        with (blt_parent_noborder)
+        {
+            // bone occupies the grounded heart's body band -> it would hit if she stays down
+            if (bbox_top < (_floory + 8) && bbox_bottom > (_floory - 8))
+            {
+                var _g = abs(x - other.x);
+                if (_g < _bestgap)
+                {
+                    _bestgap = _g;
+                    _bestdx = x - other.x;
+                    _found = 1;
+                }
+            }
+        }
+        if (_found == 1 && _bestgap < 130 && _grounded)
+        {
+            var _close = 1 - (_bestgap / 130);       // 0 far .. 1 at the heart
+            if (_close < 0) _close = 0;
+            if (_close > 1) _close = 1;
+            if (global.nvda_jumptimer <= 0)
+            {
+                var _pan = _bestdx / 130;             // bone on the right -> right ear
+                if (_pan < -1) _pan = -1;
+                if (_pan > 1) _pan = 1;
+                var _freq = 300 + (_close * 600);    // 300Hz far -> 900Hz = JUMP NOW
+                external_call(global.pan_beep, _pan, _freq, 55, 0.6);
+                var _iv = round(18 - (_close * 15)); // 18 frames far -> 3 frames near
+                if (_iv < 3) _iv = 3;
+                global.nvda_jumptimer = _iv;
+            }
+        }
+        if (global.nvda_jumptimer > 0) global.nvda_jumptimer -= 1;
+    }
+}";
+    var bsg = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+    bsg.QueueAppend(Data.Code.ByName("gml_Object_obj_heart_Step_0"), bs);
+    bsg.Import();
+    Console.WriteLine("Injected BLUE-SOUL jump cue (bone sonar on obj_heart movement==2)");
 }

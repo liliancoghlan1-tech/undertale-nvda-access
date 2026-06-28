@@ -21,10 +21,32 @@ WALKING AROUND (the overworld)
   T ....................... select the next nearby thing
   R ....................... select the previous nearby thing
   G ....................... repeat your current target
+  V ....................... auto-walk to your selected target
+                            (press V again, or any move key, to stop)
+
+  As you walk you also hear soft footsteps, a thud at walls, a
+  door sound through doorways, and a bell when something you can
+  interact with is right next to you.
 
   Stuck on a puzzle that needs eyesight (and only then):
   P ....................... skip-puzzle mode / cycle the exits
   O ....................... confirm the chosen exit
+
+------------------------------------------------------------
+ACCESSIBILITY MENU and MUSIC (anywhere)
+------------------------------------------------------------
+  K ....................... open the Accessibility menu. Use Up
+                            and Down to move, Left and Right to
+                            change a setting, K or X to close.
+                            Turn features on or off (screen
+                            reading, scanning, puzzle skip,
+                            navigation sounds, combat cues), set
+                            the difficulty mode, and set music
+                            volume. Your choices are saved.
+                            (You can also open it from the title
+                            screen: choose "Accessibility options".)
+  N ....................... music quieter
+  B ....................... music louder
 
 ------------------------------------------------------------
 BATTLES - the menus (FIGHT / ACT / ITEM / MERCY)
@@ -50,6 +72,13 @@ BATTLES - dodging attacks (the bullet/heart part)
   Press the matching Arrow (or W A S D) to jump to the safe spot.
   Q ....................... say where your heart is in the box
   F (hold) ................ fast-forward through slow moments
+
+  BLUE heart (Papyrus): you stand on a floor and JUMP over bones.
+  A beep pans to the side a bone comes from and rises in pitch as
+  it nears - press Up to jump when the pitch peaks.
+
+  GREEN heart (Undyne): you hold a shield and face incoming spears.
+  A beep tells you the side - press that Arrow to block it.
 
 ------------------------------------------------------------
 SPECIAL BITS
