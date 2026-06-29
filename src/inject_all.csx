@@ -61,23 +61,28 @@ if (!variable_global_exists(""nvda_ready""))
 
 var importGroup = new UndertaleModLib.Compiler.CodeImportGroup(Data);
 
-// Create: init the bridge, speak line 0, remember it as already-spoken.
+// Create: init the bridge, speak line 0, remember its TEXT as already-spoken.
 importGroup.QueueAppend(Data.Code.ByName("gml_Object_obj_base_writer_Create_0"),
-    "if (variable_global_exists(\"nvda_opt_speech\") && global.nvda_opt_speech == 0) exit;\n" + bridgeInit + "\nnvda_lastspoke = stringno;\n" + SpeakCore("mystring[0]"));
+    "if (variable_global_exists(\"nvda_opt_speech\") && global.nvda_opt_speech == 0) exit;\n" + bridgeInit + "\nnvda_lasttext = mystring[0];\n" + SpeakCore("mystring[0]"));
 
-// Step (every frame): if the line index changed, speak the new line.
+// Step (every frame): speak whenever the displayed line TEXT changes.  Tracking the text
+// (not just stringno) is essential: after an overworld choice the SAME writer is reused via
+// scr_msgup (global.msc++, stringno reset to 0, mystring refilled with the result) - stringno
+// never changes, so a stringno-only watcher missed the result text ("You took a piece of
+// candy", spider-shop purchase lines, etc.).  Comparing the line text catches that reload
+// AND normal stringno advances.
 importGroup.QueueAppend(Data.Code.ByName("gml_Object_obj_base_writer_Step_0"),
     "if (variable_global_exists(\"nvda_opt_speech\") && global.nvda_opt_speech == 0) exit;\n"
-    + "if (variable_instance_exists(id, \"nvda_lastspoke\") && stringno != nvda_lastspoke)\n{\n    nvda_lastspoke = stringno;\n"
+    + "if (variable_instance_exists(id, \"nvda_lasttext\") && mystring[stringno] != nvda_lasttext)\n{\n    nvda_lasttext = mystring[stringno];\n"
     + SpeakCore("mystring[stringno]") + "\n}");
 
 // OBJ_NOMSCWRITER (the enemy-turn speech-bubble writer) defines its OWN Create_0
 // that does NOT call event_inherited(), so the base-writer hook above never runs
 // for it -> creatures' turn comments went unspoken.  Hook its Create directly with
-// the same logic.  Its Step_0 is inherited from obj_base_writer, so the line-change
-// watcher above already covers advancing lines once nvda_lastspoke is set here.
+// the same logic.  Its Step_0 is inherited from obj_base_writer, so the text-change
+// watcher above already covers advancing lines once nvda_lasttext is set here.
 importGroup.QueueAppend(Data.Code.ByName("gml_Object_OBJ_NOMSCWRITER_Create_0"),
-    "if (variable_global_exists(\"nvda_opt_speech\") && global.nvda_opt_speech == 0) exit;\n" + bridgeInit + "\nnvda_lastspoke = stringno;\n" + SpeakCore("mystring[0]"));
+    "if (variable_global_exists(\"nvda_opt_speech\") && global.nvda_opt_speech == 0) exit;\n" + bridgeInit + "\nnvda_lasttext = mystring[0];\n" + SpeakCore("mystring[0]"));
 
 importGroup.Import();
 Console.WriteLine("Injected NVDA: base_writer Create_0 + Step_0 watcher + NOMSCWRITER Create_0");
@@ -703,7 +708,7 @@ Console.WriteLine("Injected WASD overworld movement (obj_time Begin Step)");
 // ACT option text packed in global.msg[0] e.g. "   * Check         * Talk" (cols=spaces, rows=&; slots 0-2 left,3-5 right).
 
 string[] need = { "external_define","external_call","variable_global_exists","variable_instance_exists",
-                  "string","string_pos","string_copy","string_length","string_char_at","round" };
+                  "string","string_pos","string_copy","string_length","string_char_at","round","instance_exists" };
 foreach (var f in need) Data.Functions.EnsureDefined(f, Data.Strings);
 
 string bridge = @"
@@ -714,6 +719,23 @@ string bridge = @"
         external_call(global.nvda_init, """");
         global.nvda_ready = 1;
     }";
+
+// SPAREABLE check: replicates the game's own yellow-name logic (SCR_TEXT case 3) -
+// a monster's name is drawn yellow when monsterinstance[i].mercy < 0 after scr_mercystandard,
+// where mercy = (monsterhp - global.at - global.wstrength + monsterdef) - mercymod.
+// Sets a GML local _sp (0/1) for the monster slot in <idxExpr>.
+string Spareable(string idxExpr) => @"
+            var _sp = 0;
+            var _spi = " + idxExpr + @";
+            if (_spi >= 0 && _spi < 3 && global.monster[_spi] == 1)
+            {
+                var _mi = global.monsterinstance[_spi];
+                if (instance_exists(_mi) && variable_instance_exists(_mi, ""mercymod""))
+                {
+                    var _mm = ((global.monsterhp[_spi] - global.at - global.wstrength) + global.monsterdef[_spi]) - _mi.mercymod;
+                    if (_mm < 0) _sp = 1;
+                }
+            }";
 
 string gml = @"
 {
@@ -761,7 +783,7 @@ string gml = @"
         }
     }
 
-    // Target select (FIGHT / ACT): monster name + HP.
+    // Target select (FIGHT / ACT): monster name + spareable + HP.
     if (global.bmenuno == 1 || global.bmenuno == 2 || global.bmenuno == 11)
     {
         if (global.bmenucoord[1] != nvda_pc1)
@@ -769,8 +791,10 @@ string gml = @"
             nvda_pc1 = global.bmenucoord[1];
             var _nm = global.monstername[nvda_pc1];
             var _hp = """";
-            if (global.monstermaxhp[nvda_pc1] > 0) _hp = "", H P "" + string(global.monsterhp[nvda_pc1]) + "" of "" + string(global.monstermaxhp[nvda_pc1]);
-            external_call(global.nvda_speak, nvda_prefix + _nm + _hp);
+            if (global.monstermaxhp[nvda_pc1] > 0) _hp = "", H P "" + string(global.monsterhp[nvda_pc1]) + "" of "" + string(global.monstermaxhp[nvda_pc1]);" + Spareable("nvda_pc1") + @"
+            var _sps = """";
+            if (_sp) _sps = "", spareable"";
+            external_call(global.nvda_speak, nvda_prefix + _nm + _sps + _hp);
             nvda_prefix = """";
         }
     }
@@ -834,7 +858,7 @@ string gml = @"
         }
     }
 
-    // MERCY: Spare / Flee.
+    // MERCY: Spare / Flee. On Spare, flag whether any enemy can be spared right now.
     if (global.bmenuno == 4)
     {
         if (global.bmenucoord[4] != nvda_pc4)
@@ -842,6 +866,15 @@ string gml = @"
             nvda_pc4 = global.bmenucoord[4];
             var _m = ""Spare"";
             if (nvda_pc4 == 1) _m = ""Flee"";
+            else
+            {
+                var _anysp = 0;
+                for (var _k = 0; _k < 3; _k += 1)
+                {" + Spareable("_k") + @"
+                    if (_sp) _anysp = 1;
+                }
+                if (_anysp) _m = ""Spare, can spare now"";
+            }
             external_call(global.nvda_speak, nvda_prefix + _m);
             nvda_prefix = """";
         }
@@ -2914,7 +2947,8 @@ Console.WriteLine("Injected navigation sound effects: footsteps + wall-bump + do
 {
 string[] need = { "external_define","external_call","variable_global_exists",
                   "keyboard_check_pressed","ord","audio_sound_gain","audio_sound_get_gain",
-                  "is_real","round","string" };
+                  "is_real","round","string","audio_is_playing",
+                  "ds_list_create","ds_list_add","ds_list_size","ds_list_find_value","ds_list_delete" };
 foreach (var f in need) Data.Functions.EnsureDefined(f, Data.Strings);
 
 string bridge = @"
@@ -2929,6 +2963,7 @@ string bridge = @"
 string gml = @"
 {" + bridge + @"
     if (!variable_global_exists(""nvda_musicvol"")) global.nvda_musicvol = 0.5;
+    if (!variable_global_exists(""nvda_mtrack"")) global.nvda_mtrack = ds_list_create();
 
     var _changed = 0;
     if (keyboard_check_pressed(ord(""N""))) { global.nvda_musicvol -= 0.1; _changed = 1; }
@@ -2936,6 +2971,24 @@ string gml = @"
     if (global.nvda_musicvol < 0) global.nvda_musicvol = 0;
     if (global.nvda_musicvol > 1) global.nvda_musicvol = 1;
 
+    // Walk the tracked-music list (filled by the caster_* hooks below - it catches TITLE and
+    // COMBAT music, which never set global.currentsong). Drop finished instances; on a key press
+    // snap each playing track straight to the new level (so louder is instant too); otherwise
+    // hold each track at or below the ceiling (game fade-ins may push it back up).
+    var _li = ds_list_size(global.nvda_mtrack) - 1;
+    while (_li >= 0)
+    {
+        var _sid = ds_list_find_value(global.nvda_mtrack, _li);
+        if (!audio_is_playing(_sid))
+            ds_list_delete(global.nvda_mtrack, _li);
+        else if (_changed)
+            audio_sound_gain(_sid, global.nvda_musicvol, 0);
+        else if (audio_sound_get_gain(_sid) > (global.nvda_musicvol + 0.001))
+            audio_sound_gain(_sid, global.nvda_musicvol, 0);
+        _li -= 1;
+    }
+
+    // Also clamp global.currentsong directly (overworld area music started before the tracker existed).
     var _have = 0;
     var _cs = 0;
     if (variable_global_exists(""currentsong""))
@@ -2943,25 +2996,31 @@ string gml = @"
         _cs = global.currentsong;
         if (is_real(_cs) && _cs > 0) _have = 1;
     }
+    if (_changed && _have) audio_sound_gain(_cs, global.nvda_musicvol, 0);
+    else if (_have && audio_sound_get_gain(_cs) > (global.nvda_musicvol + 0.001))
+        audio_sound_gain(_cs, global.nvda_musicvol, 0);
 
     if (_changed)
     {
-        if (_have) audio_sound_gain(_cs, global.nvda_musicvol, 0);
         var _pct = round(global.nvda_musicvol * 100);
         if (_pct <= 0) external_call(global.nvda_speak, ""Music off"");
         else external_call(global.nvda_speak, ""Music "" + string(_pct) + "" percent"");
-    }
-    else if (_have)
-    {
-        if (audio_sound_get_gain(_cs) > (global.nvda_musicvol + 0.001))
-            audio_sound_gain(_cs, global.nvda_musicvol, 0);
     }
 }";
 
 var g = new UndertaleModLib.Compiler.CodeImportGroup(Data);
 g.QueueAppend(Data.Code.ByName("gml_Object_obj_time_Step_1"), gml);
+
+// Record every played music instance into global.nvda_mtrack so the volume control can reach
+// TITLE and COMBAT music too. ALL music in this port flows through these 3 caster scripts
+// (caster_play / caster_play_l / caster_loop), each ending in `return this_song_i;`.
+g.ThrowOnNoOpFindReplace = true;
+string trackLine = "if (variable_global_exists(\"nvda_mtrack\")) ds_list_add(global.nvda_mtrack, this_song_i);\nreturn this_song_i;";
+g.QueueRegexFindReplace(Data.Code.ByName("gml_Script_caster_play"),   @"return this_song_i;", trackLine);
+g.QueueRegexFindReplace(Data.Code.ByName("gml_Script_caster_play_l"), @"return this_song_i;", trackLine);
+g.QueueRegexFindReplace(Data.Code.ByName("gml_Script_caster_loop"),   @"return this_song_i;", trackLine);
 g.Import();
-Console.WriteLine("Injected music volume control (N quieter / B louder, default 50%)");
+Console.WriteLine("Injected music volume control (N quieter / B louder, default 50%) + caster music tracking");
 }
 
 // Shared accessibility-menu DRIVE logic (open/close + navigate + toggle + announce). Injected
