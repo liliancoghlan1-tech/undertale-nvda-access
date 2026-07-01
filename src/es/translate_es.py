@@ -126,6 +126,9 @@ T = {
     "O tile": "casilla O", "O, done, avoid": "O, hecho, evita", "X, step on it": "X, písala",
     "Diagnostic. ": "Diagnóstico. ",
     "Music ": "Música ", "Music off": "Música desactivada", "Music volume": "Volumen de música",
+    # --- blue soul (Papyrus jump) intro (v1.3) ---
+    "Blue soul. Press up to jump. The mod sets your jump height, so just time each jump to the beeps. A high beep is a small bone, a low beep is a big bone, and a slow low pulse means a ceiling bone, so stay down.":
+        "Alma azul. Pulsa arriba para saltar. El mod ajusta la altura del salto por ti, así que solo tienes que cronometrar cada salto con los pitidos. Un pitido agudo es un hueso pequeño, un pitido grave es un hueso grande, y un pulso grave y lento significa un hueso en el techo, así que quédate abajo.",
 }
 
 with io.open(PATH, "r", encoding="utf-8") as f:

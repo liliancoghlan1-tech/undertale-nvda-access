@@ -3713,18 +3713,24 @@ Console.WriteLine("Injected accessibility options menu (K opens; 7 options; ini-
     Console.WriteLine("Injected AUTOWALK (V key; mp_grid pathfinding to selected scanner target)");
 }
 
-// ===== BLUE SOUL (jump) cue — obj_heart movement==2: bone sonar so you know WHEN to jump =====
-// Blue soul = heart sits on a floor, left/right walk along it, UP = jump (vspeed=-6), gravity
-// pulls it back down. Papyrus's bones (the blt_parent_noborder family incl. blt_sizebone) slide
-// horizontally at floor level; you hop over them. CUE: find the nearest bone whose body overlaps
-// the GROUNDED-heart's level and is approaching, then gmpan-beep with RISING pitch + FASTER rate
-// as it nears (panned to the side it comes from) -> jump (up) when the pitch peaks. Same scheme
-// as the FIGHT attack-bar + green-shield cue she liked. Gated movement==2 + combat-cues option;
-// suppressed mid-jump. Death already prevented by Assist (M) mode while learning.
-// v1 = down-gravity blue soul (movement==2, Papyrus); rotated variants 11/12/13 deferred.
+// ===== BLUE SOUL (jump) cue v2 — obj_heart movement==2: type-aware sonar + AUTO JUMP HEIGHT =====
+// Blue soul = heart stands on the floor, left/right walk, UP = jump. The game jump is VARIABLE
+// height (hold UP = higher). Papyrus throws SHORT floor bones (little hop), TALL floor bones (must
+// hold for a big jump) and CEILING bones (blt_topbone: stay LOW). v1 gave one "jump" beep for all
+// -> couldn't tell short vs tall vs "don't jump". v2 (Lilian's call: "auto-height + full sounds"):
+//   * TYPE-AWARE CUE while grounded: nearest floor bone -> panned beep, HIGH pitch = short (tap),
+//     LOW pitch = tall (big jump); ceiling-only -> a steady low "stay down" pulse. Rising pitch +
+//     faster rate as it nears = act-now (same feel as the FIGHT/green-shield cues she liked).
+//   * AUTO JUMP HEIGHT: she just presses UP on the beat; the mod holds the jump exactly high enough
+//     to clear the tallest floor bone in her column (clamped by ceiling bones + the box top), then
+//     drops her -> lands in time for the next. Done by overriding vspeed at the END of Step_0 (after
+//     the game's jump-cut + gravity), so it works regardless of global.osflavor / whether she holds.
+//   * LANDING TICK when she becomes grounded again = "you can jump the next one" (rhythm of a run).
+// Gated movement==2 + combat-cues option. Death still prevented by Assist (M) mode while learning.
+// Rotated-gravity variants (movement 11/12/13) + Sans' obj_heart_sansbattle still deferred.
 {
     foreach (var f in new string[] { "external_define","external_call","variable_global_exists",
-             "abs","round" })
+             "variable_instance_exists","abs","round" })
         Data.Functions.EnsureDefined(f, Data.Strings);
 
     string bs = @"
@@ -3739,49 +3745,107 @@ Console.WriteLine("Injected accessibility options menu (K opens; 7 options; ini-
             external_call(global.pan_init);
             global.pan_ready = 1;
         }
+        if (!variable_global_exists(""nvda_ready""))
+        {
+            global.nvda_init = external_define(""nvda_gm.dll"", ""gmnvda_init"", 0, 0, 1, 1);
+            global.nvda_speak = external_define(""nvda_gm.dll"", ""gmnvda_speak"", 0, 0, 1, 1);
+            external_call(global.nvda_init, """");
+            global.nvda_ready = 1;
+        }
+        if (!variable_instance_exists(id, ""nvda_bs_lastjs"")) nvda_bs_lastjs = jumpstage;
+        if (!variable_instance_exists(id, ""nvda_bs_climb"")) nvda_bs_climb = 0;
+        if (!variable_instance_exists(id, ""nvda_bs_greeted"")) nvda_bs_greeted = 0;
         if (!variable_global_exists(""nvda_jumptimer"")) global.nvda_jumptimer = 0;
 
-        var _floory = global.idealborder[3] - 16;   // grounded-heart centre line
-        var _grounded = (jumpstage != 2);            // mid-jump = already committed, stay quiet
-        var _bestgap = 1000;
-        var _bestdx = 0;
-        var _found = 0;
-        with (blt_parent_noborder)
+        if (nvda_bs_greeted == 0)
         {
-            // bone occupies the grounded heart's body band -> it would hit if she stays down
-            if (bbox_top < (_floory + 8) && bbox_bottom > (_floory - 8))
+            external_call(global.nvda_speak, ""Alma azul. Pulsa arriba para saltar. El mod ajusta la altura del salto por ti, así que solo tienes que cronometrar cada salto con los pitidos. Un pitido agudo es un hueso pequeño, un pitido grave es un hueso grande, y un pulso grave y lento significa un hueso en el techo, así que quédate abajo."");
+            nvda_bs_greeted = 1;
+        }
+
+        var _floory = global.idealborder[3] - 16;    // grounded-heart line
+        var _boxtop = global.idealborder[2] + 6;      // highest she can be
+
+        // ---- scan blue-soul bones (blt_sizebone + its children blt_superbone/blt_topbone) ----
+        var _fgap = 9999; var _fdx = 0; var _ftop = _floory; var _ffound = 0;  // nearest FLOOR bone
+        var _cgap = 9999; var _cdx = 0; var _cbot = _boxtop; var _cfound = 0;  // nearest CEILING bone
+        var _clearTop = _floory;                       // tallest floor-bone top in the takeoff column
+        with (blt_sizebone)
+        {
+            var _g = abs(x - other.x);
+            if (_g < 130)
             {
-                var _g = abs(x - other.x);
-                if (_g < _bestgap)
+                if (object_index == blt_topbone)
                 {
-                    _bestgap = _g;
-                    _bestdx = x - other.x;
-                    _found = 1;
+                    if (_g < _cgap) { _cgap = _g; _cdx = x - other.x; _cbot = bbox_bottom; _cfound = 1; }
+                }
+                else
+                {
+                    if (_g < _fgap) { _fgap = _g; _fdx = x - other.x; _ftop = bbox_top; _ffound = 1; }
+                    if (_g < 70 && bbox_top < _clearTop) _clearTop = bbox_top;
                 }
             }
         }
-        if (_found == 1 && _bestgap < 130 && _grounded)
+
+        var _grounded = (jumpstage != 2);
+
+        // ================= TYPE-AWARE CUE (grounded only) =================
+        if (_grounded)
         {
-            var _close = 1 - (_bestgap / 130);       // 0 far .. 1 at the heart
-            if (_close < 0) _close = 0;
-            if (_close > 1) _close = 1;
+            if (global.nvda_jumptimer > 0) global.nvda_jumptimer -= 1;
             if (global.nvda_jumptimer <= 0)
             {
-                var _pan = _bestdx / 130;             // bone on the right -> right ear
-                if (_pan < -1) _pan = -1;
-                if (_pan > 1) _pan = 1;
-                var _freq = 300 + (_close * 600);    // 300Hz far -> 900Hz = JUMP NOW
-                external_call(global.pan_beep, _pan, _freq, 55, 0.6);
-                var _iv = round(18 - (_close * 15)); // 18 frames far -> 3 frames near
-                if (_iv < 3) _iv = 3;
-                global.nvda_jumptimer = _iv;
+                if (_ffound == 1)
+                {
+                    var _close = 1 - (_fgap / 130); if (_close < 0) _close = 0; if (_close > 1) _close = 1;
+                    var _pan = _fdx / 130; if (_pan < -1) _pan = -1; if (_pan > 1) _pan = 1;
+                    var _freq = 520 + (_close * 320); var _ms = 50; var _gain = 0.6;   // short = HIGH
+                    if ((_floory - _ftop) > 70) { _freq = 260 + (_close * 220); _ms = 85; _gain = 0.68; } // tall = LOW
+                    external_call(global.pan_beep, _pan, _freq, _ms, _gain);
+                    var _iv = round(16 - (_close * 13)); if (_iv < 3) _iv = 3;
+                    global.nvda_jumptimer = _iv;
+                }
+                else if (_cfound == 1)
+                {
+                    var _panc = _cdx / 130; if (_panc < -1) _panc = -1; if (_panc > 1) _panc = 1;
+                    external_call(global.pan_beep, _panc, 200, 60, 0.5);   // steady low = stay down
+                    global.nvda_jumptimer = 10;
+                }
             }
         }
-        if (global.nvda_jumptimer > 0) global.nvda_jumptimer -= 1;
+
+        // ================= AUTO JUMP HEIGHT (airborne) =================
+        if (jumpstage == 2 && nvda_bs_lastjs != 2) nvda_bs_climb = 1;   // takeoff this frame
+        if (jumpstage != 2) nvda_bs_climb = 0;
+        if (nvda_bs_climb == 1 && jumpstage == 2)
+        {
+            var _yt = _clearTop - 10;                          // rise just above the tallest bone
+            if (_ffound == 0 && _clearTop >= _floory) _yt = _floory - 26;   // no bone -> small hop
+            if (_yt < _boxtop) _yt = _boxtop;                  // never leave the box top
+            if (_cfound == 1 && _yt < (_cbot + 10)) _yt = _cbot + 10;   // don't rise into a ceiling bone
+            if (y > _yt)
+            {
+                if (vspeed > -6) vspeed = -6;                  // keep climbing (beats the jump-cut)
+            }
+            else
+            {
+                nvda_bs_climb = 0;
+                if (vspeed < 0) vspeed = 0;                    // apex reached -> let gravity drop her
+            }
+        }
+
+        // ================= LANDING TICK =================
+        if (jumpstage != 2 && nvda_bs_lastjs == 2)
+            external_call(global.pan_beep, 0, 380, 35, 0.35);
+        nvda_bs_lastjs = jumpstage;
+    }
+    else
+    {
+        if (variable_instance_exists(id, ""nvda_bs_greeted"")) nvda_bs_greeted = 0;
     }
 }";
     var bsg = new UndertaleModLib.Compiler.CodeImportGroup(Data);
     bsg.QueueAppend(Data.Code.ByName("gml_Object_obj_heart_Step_0"), bs);
     bsg.Import();
-    Console.WriteLine("Injected BLUE-SOUL jump cue (bone sonar on obj_heart movement==2)");
+    Console.WriteLine("Injected BLUE-SOUL jump cue v2 (auto-height + type-aware sonar on obj_heart)");
 }
