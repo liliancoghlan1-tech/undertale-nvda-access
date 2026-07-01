@@ -19,6 +19,17 @@ start to finish, including the hardest fights.
 Everything the installer says is spoken by NVDA. Your original game is saved as
 `data.win.NVDA-BACKUP`, and **`Uninstall`** puts it back exactly.
 
+## 🇪🇸 Spanish edition (Español Castellano)
+
+There's a **Spanish version** — grab `Undertale-NVDA-Access-ES.zip` from the
+[Releases](../../releases) page. It adds the same accessibility **on top of** the
+community Spanish translation **"Undertale Español Castellano" v1.2.1 by
+[ArceUseless](https://twitter.com/Rafael_Nicar)** — all credit for the game's
+translation goes to them. Apply their translation first, then run `Instalar.bat`, and
+**set NVDA's voice to Spanish**. This project does not include or redistribute the
+translation; it only ships its own accessibility layer. Source in
+[`src/es/`](src/es/).
+
 ## ✅ Requirements
 
 - Windows PC
