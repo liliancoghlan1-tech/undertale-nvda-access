@@ -74,8 +74,12 @@ BATTLES - dodging attacks (the bullet/heart part)
   F (hold) ................ fast-forward through slow moments
 
   BLUE heart (Papyrus): you stand on a floor and JUMP over bones.
-  A beep pans to the side a bone comes from and rises in pitch as
-  it nears - press Up to jump when the pitch peaks.
+  Press Up to jump - the mod sets the height for you, so you only
+  have to TIME it. A beep pans to the side each bone comes from and
+  speeds up as it nears; press Up when it peaks. The pitch tells you
+  the bone: a HIGH beep is a small bone (quick hop), a LOW beep is a
+  tall bone (big jump), and a slow low pulse means a bone overhead -
+  stay down, don't jump. A soft tick = you've landed, jump the next.
 
   GREEN heart (Undyne): you hold a shield and face incoming spears.
   A beep tells you the side - press that Arrow to block it.
