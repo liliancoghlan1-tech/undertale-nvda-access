@@ -23,6 +23,8 @@ WALKING AROUND (the overworld)
   G ....................... repeat your current target
   V ....................... auto-walk to your selected target
                             (press V again, or any move key, to stop)
+  L ....................... look: describe the area you are in
+                            (repeats that room's audio description)
 
   As you walk you also hear soft footsteps, a thud at walls, a
   door sound through doorways, and a bell when something you can
@@ -54,6 +56,8 @@ BATTLES - the menus (FIGHT / ACT / ITEM / MERCY)
   Arrow keys .............. move the cursor (options are read)
   Z ....................... choose
   X ....................... go back
+  D ....................... describe the monster you are facing -
+                            what it looks like. Free; costs no turn.
 
   When you FIGHT, you hear quick "parking-sensor" beeps that
   speed up and rise in pitch toward the center - press Z on

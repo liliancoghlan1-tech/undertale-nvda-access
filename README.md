@@ -7,6 +7,11 @@ story, menus, battles, navigation, puzzles, and even the final boss — playable
 This mod was made by and tested by a blind player who beat the **entire game** with it,
 start to finish, including the hardest fights.
 
+**New in v1.5 — audio description.** Beyond making the game *playable* by ear, the mod now
+*describes* it: what each character looks like, what every room looks like (press **L** to
+re-hear), the silent visual moments in cutscenes, and what each monster looks like in battle
+(press **D**). See the [changelog](CHANGELOG.md).
+
 ---
 
 please note due to this Games status as a bullet hell title, direct adaptation of the combat was impossible. Following the directional beeps with your arrow keys will teleport  your soul to safe places on the board. While not the exact same, it should still provide an engaging and challenging experience. 
@@ -46,6 +51,7 @@ Full list in **`KEYS.txt`** (included in the download). The essentials:
 - **Arrow keys / WASD** move · **Z** interact/confirm · **C** menu
 - **E** scans your surroundings; the mod guides you by voice as you walk
 - **V** auto-walks you to your selected target (pathfinds around walls)
+- **L** describes the room you're in; **D** (in battle) describes the monster you're facing
 - **K** opens the in-game **Accessibility menu** (toggle features, difficulty, music) — also on the title screen
 - **N / B** turn the music down / up so the cues come through
 - In dodging fights, press **M** for **Assisted mode** (can't be defeated) and follow the
@@ -59,6 +65,10 @@ volume control, the in-game menu (items/stats/cell/save), shops, elevators, batt
 the FIGHT timing bar, attack-dodging (with assist/slow/normal modes), the **jump** and
 **shield** soul fights, area puzzles (with a skip option for the few that truly need
 eyesight), the Mettaton quiz, and the final boss.
+
+**Audio description (v1.5):** character introductions, a description of every room in the
+game (on first visit, or on demand with **L**), narration of the silent cutscene beats, and
+a monster describe key (**D**) in battle — plus the speaker's name before each line.
 
 ### Honest limitations
 

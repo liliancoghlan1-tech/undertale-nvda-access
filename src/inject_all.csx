@@ -14,6 +14,7 @@ Data.Functions.EnsureDefined("variable_instance_exists", Data.Strings);
 Data.Functions.EnsureDefined("chr", Data.Strings);
 Data.Functions.EnsureDefined("string_length", Data.Strings);
 Data.Functions.EnsureDefined("string_char_at", Data.Strings);
+Data.Functions.EnsureDefined("string_pos", Data.Strings);
 
 // Sanitize <srcExpr> (strip Undertale control codes, exactly mirroring the
 // game's own parser in obj_base_writer Alarm_0) and speak it via NVDA.
@@ -22,7 +23,9 @@ Data.Functions.EnsureDefined("string_char_at", Data.Strings);
 //   \z \R \G \W ... (other \X)   -> skip 2 (\ + cmd)
 //   &         = newline          -> space
 //   / % *     = markers/bullet   -> drop
-string SpeakCore(string srcExpr) => @"
+// SpeakVia: sanitize <srcExpr> and speak it via the given bridge function
+// (global.nvda_speak = interrupt-then-speak, global.nvda_speak_queue = append).
+string SpeakVia(string srcExpr, string func) => @"
 {
     var _raw = " + srcExpr + @";
     var _out = """";
@@ -47,8 +50,95 @@ string SpeakCore(string srcExpr) => @"
         _i += 1;
     }
     if (_out != """")
-        external_call(global.nvda_speak, _out);
+    {
+        // Speaker attribution: prefix the line with the character's name, but only when the
+        // speaker CHANGES from the previous line (so a multi-page speech from one character
+        // reads the name once, not on every page). txtsound is the per-character voice.
+        var _spk = """";
+        if (variable_instance_exists(id, ""txtsound""))
+        {
+            var _ts = txtsound;
+            if (_ts == snd_txttor || _ts == snd_txttor2) _spk = ""Toriel"";
+            else if (_ts == snd_floweytalk1 || _ts == snd_floweytalk2) _spk = ""Flowey"";
+            else if (_ts == snd_txtsans || _ts == snd_txtsans2) _spk = ""Sans"";
+            else if (_ts == snd_txtpap) _spk = ""Papyrus"";
+            else if (_ts == snd_txtund || _ts == snd_txtund2 || _ts == snd_txtund3 || _ts == snd_txtund4 || _ts == snd_txtund_hyper) _spk = ""Undyne"";
+            else if (_ts == snd_txtal) _spk = ""Alphys"";
+            else if (_ts == snd_txtasg) _spk = ""Asgore"";
+            else if (_ts == snd_txtasr || _ts == snd_txtasr2) _spk = ""Asriel"";
+            else if (_ts == snd_mtt1) _spk = ""Mettaton"";
+            else if (_ts == snd_tem) _spk = ""Temmie"";
+            else if (_ts == snd_wngdng1) _spk = ""Gaster"";
+        }
+        if (_spk != """")
+        {
+            if (!variable_global_exists(""nvda_lastspk"") || global.nvda_lastspk != _spk)
+            {
+                global.nvda_lastspk = _spk;
+                _out = _spk + "". "" + _out;
+            }
+        }
+        else
+        {
+            global.nvda_lastspk = """";
+        }
+        // Priority window: while a cutscene description is protected (nvda_prio_until, measured
+        // in obj_time's frame counter global.nvda_now), force this line to QUEUE behind it
+        // instead of interrupting it.
+        var _fn = " + func + @";
+        if (variable_global_exists(""nvda_prio_until"") && variable_global_exists(""nvda_speak_queue"") && variable_global_exists(""nvda_now"") && global.nvda_now < global.nvda_prio_until)
+            _fn = global.nvda_speak_queue;
+        external_call(_fn, _out);
+    }
 }";
+string SpeakCore(string srcExpr) => SpeakVia(srcExpr, "global.nvda_speak");
+
+// charIntroGml: identify the SPEAKING character from txtsound (each major character
+// has a unique typing voice, set by SCR_TEXTTYPE at box open) and, the FIRST time that
+// character speaks this session, set _desc to a spoken audio-description of how they look.
+// Appearance-first, no names (the game reveals those) and no story spoilers.  Detection
+// by voice cleanly covers exactly the characters players confuse; generic NPCs (SND_TXT*)
+// never match, so we never misidentify.  Seen-set is a session global (re-introduces on
+// relaunch; persistence is a later refinement).
+string charIntroGml = @"
+var _ck = """";
+if (variable_instance_exists(id, ""txtsound""))
+{
+    var _ts = txtsound;
+    if (_ts == snd_txttor || _ts == snd_txttor2) _ck = ""toriel"";
+    else if (_ts == snd_floweytalk1 || _ts == snd_floweytalk2) _ck = ""flowey"";
+    else if (_ts == snd_txtsans || _ts == snd_txtsans2) _ck = ""sans"";
+    else if (_ts == snd_txtpap) _ck = ""papyrus"";
+    else if (_ts == snd_txtund || _ts == snd_txtund2 || _ts == snd_txtund3 || _ts == snd_txtund4 || _ts == snd_txtund_hyper) _ck = ""undyne"";
+    else if (_ts == snd_txtal) _ck = ""alphys"";
+    else if (_ts == snd_txtasg) _ck = ""asgore"";
+    else if (_ts == snd_txtasr || _ts == snd_txtasr2) _ck = ""asriel"";
+    else if (_ts == snd_mtt1) _ck = ""mettaton"";
+    else if (_ts == snd_tem) _ck = ""temmie"";
+    else if (_ts == snd_wngdng1) _ck = ""gaster"";
+}
+var _desc = """";
+if (_ck != """")
+{
+    if (!variable_global_exists(""nvda_seen_chars"")) global.nvda_seen_chars = ""|"";
+    if (string_pos(""|"" + _ck + ""|"", global.nvda_seen_chars) == 0)
+    {
+        global.nvda_seen_chars += _ck + ""|"";
+        global.nvda_opt_dirty = 1;   // persist the seen-set via obj_time's deferred ini flush
+        if (_ck == ""flowey"") _desc = ""A small golden flower pokes up through the ground. It has a round white face, two big dark eyes and a wide, cheerful smile."";
+        else if (_ck == ""toriel"") _desc = ""A tall, gentle monster who looks like a goat standing on two legs. She has soft white fur, long floppy ears, small horns and warm eyes, and wears a long purple robe marked with a white winged crest."";
+        else if (_ck == ""sans"") _desc = ""A short, pudgy skeleton with a wide, permanent grin. He wears a blue hooded jacket over a white shirt, black shorts, and pink slippers, and looks completely relaxed."";
+        else if (_ck == ""papyrus"") _desc = ""A very tall, lanky skeleton striking a dramatic pose. He wears a homemade costume: a white chest piece with a long red scarf, red gloves and red boots."";
+        else if (_ck == ""undyne"") _desc = ""A tall, powerful fish-like monster with deep blue scales, a long red ponytail and sharp yellow teeth. One eye is covered by a black eyepatch, and she wears gleaming metal armour."";
+        else if (_ck == ""alphys"") _desc = ""A short, round, yellow lizard-like monster with glasses and a slightly nervous expression. She wears a white lab coat."";
+        else if (_ck == ""asgore"") _desc = ""An enormous, powerful monster like a goat standing upright, built like a broad-shouldered king. He has white fur, long curved horns, a golden mane and beard, and wears purple armour."";
+        else if (_ck == ""asriel"") _desc = ""A young goat-like monster child with soft white fur, long floppy ears and small horns. He wears a green robe with a single yellow stripe across the middle."";
+        else if (_ck == ""mettaton"") _desc = ""A robot shaped like a rectangular metal box balanced on a single wheel. Its front is covered in dials, buttons and a small screen, and two slim white-gloved arms reach out from its sides."";
+        else if (_ck == ""temmie"") _desc = ""A strange little creature drawn in a crude, scribbly style: a cat-like face with big ears and wide eyes on a small brown furry body."";
+        else if (_ck == ""gaster"") _desc = ""A tall, shadowy figure that seems to melt at the edges. Its pale, cracked face has one crack running up from an eye and another running down, and it speaks in strange symbols."";
+    }
+}
+";
 
 string bridgeInit = @"
 if (!variable_global_exists(""nvda_ready""))
@@ -61,9 +151,15 @@ if (!variable_global_exists(""nvda_ready""))
 
 var importGroup = new UndertaleModLib.Compiler.CodeImportGroup(Data);
 
-// Create: init the bridge, speak line 0, remember its TEXT as already-spoken.
+// Create: init the bridge, (optionally) speak a first-encounter character description,
+// then speak line 0.  When a description plays it goes out with interrupt and the line is
+// QUEUED after it (so the line isn't cut off); otherwise the line speaks normally.
+string queueDef = "if (!variable_global_exists(\"nvda_speak_queue\")) global.nvda_speak_queue = external_define(\"nvda_gm.dll\", \"gmnvda_speak_queue\", 0, 0, 1, 1);\n";
 importGroup.QueueAppend(Data.Code.ByName("gml_Object_obj_base_writer_Create_0"),
-    "if (variable_global_exists(\"nvda_opt_speech\") && global.nvda_opt_speech == 0) exit;\n" + bridgeInit + "\nnvda_lasttext = mystring[0];\n" + SpeakCore("mystring[0]"));
+    "if (variable_global_exists(\"nvda_opt_speech\") && global.nvda_opt_speech == 0) exit;\n"
+    + bridgeInit + "\n" + queueDef + "nvda_lasttext = mystring[0];\n"
+    + charIntroGml
+    + "if (_desc != \"\")\n{\n    external_call(global.nvda_speak, _desc);\n    " + SpeakVia("mystring[0]", "global.nvda_speak_queue") + "\n}\nelse\n{\n    " + SpeakCore("mystring[0]") + "\n}");
 
 // Step (every frame): speak whenever the displayed line TEXT changes.  Tracking the text
 // (not just stringno) is essential: after an overworld choice the SAME writer is reused via
@@ -86,6 +182,684 @@ importGroup.QueueAppend(Data.Code.ByName("gml_Object_OBJ_NOMSCWRITER_Create_0"),
 
 importGroup.Import();
 Console.WriteLine("Injected NVDA: base_writer Create_0 + Step_0 watcher + NOMSCWRITER Create_0");
+
+}
+
+// ===== cutscene audio descriptions =====
+{
+// Fires a written description at specific story beats to convey what a sighted player SEES but
+// the dialogue does not say (a character attacking, a rescue, an environmental event). There is
+// no generic "a cutscene is happening" signal in Undertale, so each beat is detected either by
+// entering a specific room (RoomBeat) or by a scene-only object coming into existence, rising
+// edge (ObjBeat). Each beat fires ONCE per save: a persisted seen-set (nvda_cs_seen, section
+// "descriptions" key "cutscenes"), cleared on New Game, same machinery as the character intros.
+// Appended to obj_time Step_1 (persistent controller, runs in every room including battle rooms).
+Data.Functions.EnsureDefined("external_define", Data.Strings);
+Data.Functions.EnsureDefined("external_call", Data.Strings);
+Data.Functions.EnsureDefined("variable_global_exists", Data.Strings);
+Data.Functions.EnsureDefined("string_pos", Data.Strings);
+Data.Functions.EnsureDefined("instance_exists", Data.Strings);
+Data.Functions.EnsureDefined("keyboard_check_pressed", Data.Strings);
+Data.Functions.EnsureDefined("ord", Data.Strings);
+// Diagnostic cutscene-logger builtins (silent recon tool, see the detector block below).
+Data.Functions.EnsureDefined("file_text_open_append", Data.Strings);
+Data.Functions.EnsureDefined("file_text_write_string", Data.Strings);
+Data.Functions.EnsureDefined("file_text_writeln", Data.Strings);
+Data.Functions.EnsureDefined("file_text_close", Data.Strings);
+Data.Functions.EnsureDefined("room_get_name", Data.Strings);
+Data.Functions.EnsureDefined("string", Data.Strings);
+
+// CsSpeak: speak <text> as PRIORITY - interrupt if nothing is currently protected, else queue
+// behind it - and open a priority window so dialogue that immediately follows (e.g. Flowey's
+// "die" line) QUEUES behind the description instead of cutting it off. Window measured in frames
+// via global.nvda_now (obj_time ticks it below); 180 = ~6 s at 30 fps. SpeakVia honours it too.
+string CsSpeak(string text) =>
+  " var _csfn = global.nvda_speak;" +
+  " if (variable_global_exists(\"nvda_prio_until\") && variable_global_exists(\"nvda_speak_queue\") && global.nvda_now < global.nvda_prio_until) _csfn = global.nvda_speak_queue;" +
+  " external_call(_csfn, \"" + text + "\");" +
+  " global.nvda_prio_until = global.nvda_now + 180;";
+// EdgeBeat: fire on the RISING edge of <cond> (false->true), re-arming when <cond> goes false.
+// So it fires once each time you ENTER the room / the scene object appears, and REPLAYS on every
+// re-entry (NOT once-per-save) - important so a player who resets a puzzle room hears the
+// description again. Per-beat state kept in global.nvda_b_<key>.
+string EdgeBeat(string key, string cond, string text) =>
+  "    if (" + cond + ") { if (!variable_global_exists(\"nvda_b_" + key + "\") || global.nvda_b_" + key + " == 0) { global.nvda_b_" + key + " = 1;" + CsSpeak(text) + " } } else global.nvda_b_" + key + " = 0;\n";
+string ObjBeat(string key, string objExpr, string text) => EdgeBeat(key, "instance_exists(" + objExpr + ")", text);
+string RoomBeat(string key, string roomCond, string text) => EdgeBeat(key, roomCond, text);
+// FallBeat: fire on the FALLING edge of <objExpr> existing (present last frame, gone now) but only
+// if we did NOT just change rooms - i.e. the object was destroyed while you stayed put, e.g. an NPC
+// finishing a scene and leaving. Used for "a character floats away after the dialogue ends".
+string FallBeat(string key, string objExpr, string text) =>
+  "    { var _ex = instance_exists(" + objExpr + "); if (variable_global_exists(\"nvda_fb_" + key + "\") && global.nvda_fb_" + key + " == 1 && _ex == 0 && global.nvda_roomchg == 0) {" + CsSpeak(text) + " } global.nvda_fb_" + key + " = _ex; }\n";
+// ActorStateBeat: fire on the rising edge of a per-INSTANCE state (a scene counter, a sprite, etc.),
+// read SAFELY inside a nested instance_exists guard so we never touch a member on a missing instance
+// (GMS1 has no reliable && short-circuit, and member-access on a dead object index is a FATAL error).
+// <objName> = the object; <cond> = a bool GML expr on it (e.g. "obj_x.cn > 0"). Use this - NOT plain
+// instance_exists - for scene beats whose actor is CREATED at room load but only ACTS later (the actor
+// existing != the scene happening). Re-arms when the state is false or the instance is gone.
+string ActorStateBeat(string key, string objName, string cond, string text) =>
+  "    if (instance_exists(" + objName + ") == 0) { if (variable_global_exists(\"nvda_b_" + key + "\")) global.nvda_b_" + key + " = 0; }\n" +
+  "    else { if (!variable_global_exists(\"nvda_b_" + key + "\")) global.nvda_b_" + key + " = 0;\n" +
+  "        if ((" + cond + ") && global.nvda_b_" + key + " == 0) { global.nvda_b_" + key + " = 1;" + CsSpeak(text) + " }\n" +
+  "        else if ((" + cond + ") == 0) global.nvda_b_" + key + " = 0; }\n";
+// AmbBeat: an ENVIRONMENTAL room description. Whenever you are in <roomCond> it records the text as
+// global.nvda_roomdesc (so the L key can re-speak the current room on demand), and speaks it just
+// ONCE per save on first visit (tracked in the persisted global.nvda_amb_seen). This is the
+// "describe every room" primitive. The seen-set is loaded/flushed by the options block; until it is
+// loaded the beat still sets nvda_roomdesc but holds the one-time speak (variable_global_exists gate).
+string AmbBeat(string key, string roomCond, string text) =>
+  "    if (" + roomCond + ") { global.nvda_roomdesc = \"" + text + "\";" +
+  " if (variable_global_exists(\"nvda_amb_seen\") && string_pos(\"|" + key + "|\", global.nvda_amb_seen) == 0) { global.nvda_amb_seen += \"" + key + "|\"; global.nvda_opt_dirty = 1;" + CsSpeak(text) + " } }\n";
+
+string beats = "";
+// ===== EVENT beats: something HAPPENS (an attack, a rescue, an NPC leaving). Fire on the event,
+//       not per-room. Kept as Obj/Fall beats. =====
+// Flowey's friendly act drops exactly when obj_radialfakegen (the pellet ring) spawns.
+beats += ObjBeat("flowey_attack", "obj_radialfakegen",
+    "Flowey's cheerful face suddenly twists into something cruel. The pellets turn on you, forming a ring around your soul that closes in to surround you.");
+beats += ObjBeat("toriel_rescue", "obj_torielcutscene",
+    "A ball of fire streaks in and strikes the flower, knocking it clean out of sight. A tall, motherly monster steps out of the shadows toward you.");
+beats += ObjBeat("toriel_fight", "obj_torielboss",
+    "Toriel stands blocking the great stone door, and flames bloom in her hands. Yet each time she attacks, her fire curves away from you at the last moment. She cannot bring herself to truly hurt you.");
+// The spare goodbye is done by the OVERWORLD actor obj_toroverworld3 in room_basement4 (NOT the battle
+// object obj_torielboss, which dies during the battle->overworld fade). It shows spr_toriel_hug at the
+// embrace. Fire on the rising edge of the hug sprite, checked INSIDE an instance_exists guard (separate
+// nested ifs, so we never read .sprite_index on a missing instance). Re-arms when not hugging.
+beats += "    if (room == room_basement4 && instance_exists(obj_toroverworld3)) {\n" +
+    "        var _hug = (obj_toroverworld3.sprite_index == spr_toriel_hug || obj_toroverworld3.sprite_index == spr_toriel_hug2 || obj_toroverworld3.sprite_index == spr_toriel_hug3);\n" +
+    "        if (!variable_global_exists(\"nvda_b_torgood\")) global.nvda_b_torgood = 0;\n" +
+    "        if (_hug && global.nvda_b_torgood == 0) { global.nvda_b_torgood = 1;" +
+    CsSpeak("Toriel wraps you in a warm embrace, holding you close for a long moment. Then she lets go, turns away, and walks off down the corridor, leaving you to go on alone.") +
+    " } else if (_hug == 0) global.nvda_b_torgood = 0;\n" +
+    "    }\n";
+// ghost-2 fades out where he sits after his dialogue (his Step fades image_alpha to 0 + self-destroy).
+beats += FallBeat("ghost2_leaves", "obj_napstablook2",
+    "The little ghost slowly fades, growing fainter and fainter, until he has vanished from sight.");
+// obj_darksanstrigger is placed in the room (exists from entry); the approaching Sans actor
+// obj_darksans1 is created only on COLLISION (when you walk into the trigger) = the real moment.
+beats += ObjBeat("sans_meet", "obj_darksans1",
+    "The path ahead is dark and silent. Behind you, soft footsteps approach, and a short, shadowy figure steps up close and holds out a hand toward you.");
+// ===== UNDYNE ARC (Waterfall + Hotland). She is SILENT in these scenes, so dialogue narration gives
+//       a blind player nothing - this is pure visual action. Keyed on room + the actual actor object
+//       (obj_undynea_actor / _actor2 / obj_undynefall), which only exist while the scene is playing,
+//       so no misfire on backtrack (the room-placed trigger persists; the actor does not). =====
+// Timed on each encounter's internal counter going nonzero (= you walked PAST the trigger and the
+// scene fires), NOT the actor merely existing (it is created invisible at room load). Encounter 2
+// sets cn=1 as pre-setup, so its real start is cn >= 2 (control locks, Undyne begins the grab).
+beats += ActorStateBeat("undyne_ledge", "obj_undyneencounter1", "obj_undyneencounter1.cn > 0",
+    "A spear of blue light slams into the ground beside you. High on the ledge above stands a tall armoured figure, glaring down at you through a horned helmet.");
+beats += ActorStateBeat("undyne_grass", "obj_undyneencounter2", "obj_undyneencounter2.cn >= 2",
+    "You crouch hidden in the tall grass. Heavy armoured footsteps approach and stop right beside you. A gauntleted hand reaches down, closes around the small monster child at your side, lifts him up by the head - then sets him down and strides away.");
+beats += ActorStateBeat("undyne_bridge", "obj_undyneencounter3", "obj_undyneencounter3.cn > 0",
+    "The armoured warrior drops onto the bridge behind you and gives chase, hurling spear after spear of blue light as you run.");
+beats += ActorStateBeat("undyne_fall", "obj_undyneencounter4", "obj_undyneencounter4.con > 0",
+    "Cornered at the end of the bridge, you can only back away as she advances - until the walkway gives out beneath you and you plunge down into the dark.");
+beats += ObjBeat("undyne_collapse", "obj_undynefall",
+    "Overcome by the sweltering heat inside her heavy armour, the warrior sways, staggers, and at last crashes to the ground, where she lies still.");
+
+// ===== BACK-HALF STORY CUTSCENES (Hotland -> CORE -> New Home -> neutral finale). Silent visual
+//       action a blind player would otherwise miss, authored from the cutscene log of Lilian's
+//       neutral playthrough (2026-07-08). Each keyed on the beat-MOMENT scene object (per the
+//       "the actor existing != the scene happening" rule) and room-gated for safety. =====
+
+// Mettaton's box form transforms into his glamorous EX body (obj_scrollaway_event = the dramatic
+// scroll-up reveal spawned at the transformation; his box form was already covered on first meeting).
+beats += EdgeBeat("mett_ex", "room == room_fire_core_metttest && instance_exists(obj_scrollaway_event)",
+    "In a burst of light and confetti the boxy robot's true form unfolds: a tall, glamorous machine with long slender legs, one arm flung out in a pose, dark hair swept over one eye, and a glowing heart set in his chest. Mettaton EX has arrived, and he is fabulous.");
+
+// Cooking show: Mettaton launches his whole counter into the sky and you chase it up on a jetpack.
+// NOTE: this is also a minigame Lilian failed -> see the gameplay-guidance track (memory) for later.
+beats += EdgeBeat("cook_jetpack", "room == room_fire_cookingshow && instance_exists(obj_phonetojetpack)",
+    "The entire cooking counter blasts up off the stage and rockets into the sky, Mettaton riding it away. A phone rings, a jetpack straps itself to your back, and you shoot upward after him, hurtling through the open air.");
+
+// Throne room: the King watering the golden flowers, back turned, before he notices you (con>=2 =
+// the scene has triggered; he turns to face you later at con 19+, which his first line covers).
+beats += ActorStateBeat("asgore_flowers", "obj_asgoremeet_event", "obj_asgoremeet_event.con >= 2",
+    "At the far end of the hall a huge, broad figure in royal robes stands with his back to you, great curved horns bowed as he gently waters the bed of golden flowers, humming softly to himself, not yet aware that anyone has come.");
+
+// Asgore's fight begins: he destroys the MERCY button so you cannot spare him (obj_asgoreb Create
+// sets obj_sparebt.visible = false = the mechanical realisation of the smash).
+beats += EdgeBeat("asgore_nomercy", "room == room_castle_barrier && instance_exists(obj_asgoreb)",
+    "The King lifts his great trident and brings it down on the MERCY button, smashing it to splinters. There is no talking your way out now, and no sparing him - only the fight.");
+
+// The six human souls rise into the air at the barrier (barrierevent spawns obj_heartcontainer).
+beats += EdgeBeat("barrier_souls", "room == room_castle_barrier && instance_exists(obj_heartcontainer)",
+    "Six upturned hearts drift up into the dark and hang in the air around you, each a different colour: cyan, orange, blue, purple, green and gold. The six human souls the King has gathered, all that is needed to break the barrier at last.");
+
+// Finale (room_f_room): the flower shatters your SAVE file (obj_savepoint_fake.crack counts up as
+// each blow lands, then the file is erased and Flowey's grinning face rises).
+beats += ActorStateBeat("finale_erase", "obj_savepoint_fake", "obj_savepoint_fake.crack >= 1",
+    "The whole screen lurches and cracks. Three thunderous blows split it like glass, and your very SAVE file breaks apart and is wiped away into nothing. Out of the darkness rises a small golden flower, wearing a wide, grinning face.");
+
+// Finale: Photoshop / Omega Flowey reveal (obj_floweybattler2 = the boss).
+beats += EdgeBeat("finale_photoshop", "room == room_f_room && instance_exists(obj_floweybattler2)",
+    "The flower has fused himself with your stolen SAVE and the six souls into something monstrous: a towering hulk of steel, cables and television screens, machinery grinding and flashing all around a huge, distorted face that leers out from the very centre of it. He looms over you, vast and grinning.");
+
+// Finale aftermath: the six souls turn on Flowey and protect you (obj_6soul_helpcutscene).
+beats += ObjBeat("finale_souls_help", "obj_6soul_helpcutscene",
+    "One by one the six human souls flare back to life inside the machine and turn against the flower, circling around you, shielding you and healing your wounds as they rise up against their captor.");
+
+// ===== ROOM AMBIANCE: environmental descriptions. Spoken ONCE per save on first visit; the L key
+//       re-speaks the current room any time (AmbBeat records global.nvda_roomdesc). All verified
+//       against _rooms_all.txt. =====
+// ---- Ruins ----
+beats += AmbBeat("amb_area1", "room == room_area1 || room == room_area1_2",
+    "You land unhurt in a bed of golden flowers, deep underground. Pale light filters down from a hole high above.");
+beats += AmbBeat("amb_ruins2", "room == room_ruins2",
+    "A small stone chamber. A pressure plate is set into the floor, and a lever juts from the wall. Pressing both opens the door ahead.");
+beats += AmbBeat("amb_ruins3", "room == room_ruins3",
+    "A room crossed by a bed of spikes. Rows of switches line the walls, and Toriel has marked the ones you need with arrows, so you can lower the spikes and cross safely.");
+beats += AmbBeat("amb_ruins4", "room == room_ruins4",
+    "A cloth training dummy stands on a wooden stand in the middle of the room, its stitched face blank and patient.");
+beats += AmbBeat("amb_ruins5", "room == room_ruins5",
+    "A long hall. Patches of spikes stud the floor, with a safe path winding between them.");
+beats += AmbBeat("amb_ruins6", "room == room_ruins6",
+    "A long, straight corridor stretches away into the gloom, its far end lost in shadow. The air is still, and your own quiet footsteps are the only sound.");
+beats += AmbBeat("amb_ruins7a", "room == room_ruins7A",
+    "A bowl of colourful sweets rests on a pedestal here, beside a small sign.");
+beats += AmbBeat("amb_ruins9", "room == room_ruins9",
+    "A rock sits on the floor near a stretch of spikes. Push it onto the switch to hold the spikes down, then cross while they are lowered.");
+beats += AmbBeat("amb_ruins10", "room == room_ruins10",
+    "A quiet room with holes worn in the floor and two stone plaques set into the walls, their old inscriptions waiting to be read.");
+beats += AmbBeat("amb_ruins11", "room == room_ruins11",
+    "A large grey rock rests on the floor, and set into the ground nearby is a switch, a pressure plate. To move the rock, walk into it from the opposite side and it slides one space at a time. Push it onto the switch to open the way forward.");
+beats += AmbBeat("amb_ruins12", "room == room_ruins12",
+    "A small white ghost lies stretched across the path ahead, faint and half-see-through. The letters z, z, z drift up from him as he pretends to be asleep, though he does not look like he is fooling anyone.");
+beats += AmbBeat("amb_ruins12a", "room == room_ruins12A",
+    "A wedge of cheese sits on a table in the middle of the room, stuck fast after being left untouched for ages. In the far wall, a tiny mouse hole waits in hopeful silence.");
+beats += AmbBeat("amb_ruins14", "room == room_ruins14",
+    "A tall room. Just ahead, a hole in the floor drops down to a lower level. Down below there is a switch set into the floor, a couple of plump vegetable monsters half-buried in the earth, a faded ribbon lying on the ground, and a small, mournful ghost resting quietly in one of the hollows.");
+beats += AmbBeat("amb_ruins15", "room == room_ruins15A",
+    "A dim room dotted with tall pillars. Coloured switches - one red, one green, one blue - are set among them, and spikes block the way onward until the right ones are pressed.");
+beats += AmbBeat("amb_ruins18", "room == room_ruins18OLD",
+    "A small toy knife lies on the ground here, waiting to be picked up.");
+// ---- Toriel's home ----
+beats += AmbBeat("amb_home_yard", "room == room_ruins19",
+    "A large, leafless black tree stands in a small yard, its bare branches spread wide and dead leaves scattered all around. Just beyond it, a cosy home is built into the rock, warm light spilling from its windows.");
+beats += AmbBeat("amb_home_entrance", "room == room_torhouse1",
+    "You step inside Toriel's home, warm and snug after the cold stone of the Ruins. A staircase leads down to your left, and a hallway opens away to your right.");
+beats += AmbBeat("amb_home_living", "room == room_torhouse2",
+    "A cosy living room. A fire crackles in the hearth, and a large, cushioned reading chair sits beside it with a book left open on its arm. A doorway leads through to a small kitchen.");
+beats += AmbBeat("amb_home_hallway", "room == room_torhouse3",
+    "A long hallway lined with doors, softly lit. A mirror hangs on one wall and a little lamp glows in a corner. One of the doors has been made up as a bedroom, just for you.");
+// ---- Rooms Lilian flagged as missing on her Ruins walk (all verified against the room dump) ----
+beats += AmbBeat("amb_ruins1", "room == room_ruins1",
+    "A tall entrance hall of deep purple stone, where a wide staircase leads up and deeper into the Ruins. A patch of soft light marks a save point here.");
+// The leaf pile: the room immediately after the "unnecessary tension" corridor (candy bowl above,
+// first rock puzzle to the right) = room_ruins7, which also holds a frog and a save point.
+beats += AmbBeat("amb_ruins7", "room == room_ruins7",
+    "A room carpeted in a deep pile of dry red leaves that crinkle softly underfoot. A small frog-like monster rests by the wall, and a save point glows nearby. Passages lead away, one going up and one to the right.");
+beats += AmbBeat("amb_ruins8", "room == room_ruins8",
+    "A tall, narrow room with a hole in the floor that you can drop down through to the level below.");
+beats += AmbBeat("amb_ruins13", "room == room_ruins13",
+    "A room where a couple of small frog-like monsters rest by the walls. They will happily share advice, and a sign nearby explains how sparing a monster, pausing, and skipping through text all work.");
+beats += AmbBeat("amb_ruins16", "room == room_ruins16",
+    "A wider stone room where several passages meet.");
+beats += AmbBeat("amb_ruins17", "room == room_ruins17",
+    "A small frog-like monster sits quietly here, ready to offer a word of advice if you speak to it.");
+beats += AmbBeat("amb_ruins12b", "room == room_ruins12B",
+    "Two spider webs are strung across a corner of this room, one small and one large, with a little sign beside them. It is a spider bake sale: leave a few coins in a web and the spiders will sell you a treat.");
+// ---- Toriel's home: the two bedrooms off the hallway ----
+beats += AmbBeat("amb_home_bedroom", "room == room_asrielroom",
+    "A child's cosy bedroom. A neatly made bed sits beneath a soft lamp, with a box of toys and a few small comforts about the room. It has been made ready just for you.");
+beats += AmbBeat("amb_home_torielroom", "room == room_torielroom",
+    "Toriel's own bedroom, tidy and warm. A small chair sits in one corner, and there are a few of her personal things to read if you look around.");
+// ---- The basement corridor Toriel leads you down at the end of the Ruins ----
+beats += AmbBeat("amb_basement1", "room == room_basement1",
+    "A long, cold basement corridor of grey stone, leading away from the warmth of the house above.");
+beats += AmbBeat("amb_basement2", "room == room_basement2",
+    "The cold stone corridor stretches on, quiet and dim.");
+beats += AmbBeat("amb_basement3", "room == room_basement3",
+    "The passage narrows, the air growing colder the further you go.");
+beats += AmbBeat("amb_basement4", "room == room_basement4",
+    "A short stretch of corridor, the worn stone smooth underfoot.");
+beats += AmbBeat("amb_basement5", "room == room_basement5",
+    "A very long, straight passage stretching far ahead into the cold. At its distant end stands a great doorway leading out of the Ruins.");
+// ---- Snowdin: the snowy forest (all verified against _rooms_all.txt, room_tundra*) ----
+beats += AmbBeat("amb_tundra1", "room == room_tundra1",
+    "The great stone door of the Ruins closes behind you, and ahead the path opens into a hushed, snow-covered forest. Bare trees crowd close on either side, and your breath fogs in the cold, still air.");
+beats += AmbBeat("amb_tundra2", "room == room_tundra2",
+    "A long path winding through snowy woods. A large branch lies fallen across the way, and further on stands a strange wooden gate, its bars set so far apart that anyone could simply walk between them. A conveniently shaped lamp sits off to one side.");
+beats += AmbBeat("amb_tundra3", "room == room_tundra3",
+    "A clearing in the woods. A wooden sentry station, little more than a guard post of bars and a counter, stands beside the path. A save point glows softly nearby, next to a small sign.");
+beats += AmbBeat("amb_tundra3a", "room == room_tundra3A",
+    "A small frozen pond tucked off the main path, its surface dotted with dark divots in the ice. A fishing rod has been left propped at the water's edge, its line trailing out across the frozen surface.");
+beats += AmbBeat("amb_tundra4", "room == room_tundra4",
+    "A snowy stretch of path with another sentry station off to the side. A small, sharp-dressed bird monster loiters nearby, and telephone wires hum faintly overhead.");
+beats += AmbBeat("amb_tundra5", "room == room_tundra5",
+    "A guard post built like a little dog house sits beside the path here. A dog treat lies within reach, and a small bell hangs at the counter.");
+beats += AmbBeat("amb_tundra6", "room == room_tundra6",
+    "A wide, open stretch where a broad sheet of slippery ice covers much of the floor. Stepping onto the ice sends you sliding until you reach solid ground again. A sign stands near the path.");
+beats += AmbBeat("amb_tundra6a", "room == room_tundra6A",
+    "A quiet little clearing off the path. A small snowman stands here in the drifts, round and patient, as if waiting for someone to speak to him.");
+beats += AmbBeat("amb_tundra7", "room == room_tundra7",
+    "A snowy field crossed by an invisible maze of electric barriers. A trail of footprints has been left in the snow, marking out a safe path through it - follow the tracks to cross without being shocked.");
+beats += AmbBeat("amb_tundra8", "room == room_tundra8",
+    "A broad snowfield opens up here. A vendor stands near the entrance selling frozen treats, and off across the snow a course has been marked out for a game of rolling a great snowball toward a distant hole. A lone tree stands at the edge of the clearing.");
+beats += AmbBeat("amb_tundra8a", "room == room_tundra8A",
+    "A small side clearing with a pair of dog houses standing side by side, a sign posted between them.");
+beats += AmbBeat("amb_tundra9", "room == room_tundra9",
+    "A snowy path where a large sheet of paper lies on the ground, printed with a word puzzle - a crossword, or perhaps a jumble - left behind mid-argument.");
+beats += AmbBeat("amb_tundra_spaghetti", "room == room_tundra_spaghetti",
+    "A table has been set up in the snow, a plate of spaghetti frozen solid upon it beside a microwave that is not plugged into anything. A save point glows nearby, and a tiny mouse hole waits hopefully in the far wall.");
+beats += AmbBeat("amb_tundra_snowpuzz", "room == room_tundra_snowpuzz",
+    "A large puzzle room. Deep snow blankets the floor, with a bed of spikes set into it and tall trees dotted about. A safe path is hidden in the snow, and a sign nearby offers a clue to finding the way across.");
+beats += AmbBeat("amb_tundra_xoxosmall", "room == room_tundra_xoxosmall",
+    "A puzzle room. Tiles marked with an X are set into the floor. Step on each one to switch it to an O; turn them all and the spikes ahead lower, opening the way. A sign nearby explains the rules.");
+beats += AmbBeat("amb_tundra_xoxopuzz", "room == room_tundra_xoxopuzz",
+    "A larger version of the X and O puzzle, its floor covered in marked tiles and guarded by spikes. Step on each X to turn it into an O, clearing them all to lower the spikes and pass.");
+beats += AmbBeat("amb_tundra_randoblock", "room == room_tundra_randoblock",
+    "A room whose floor is a grid of brightly coloured tiles, with a switch set into the wall on the far side that controls the puzzle. For all its complicated-sounding rules, the way ahead opens easily enough.");
+beats += AmbBeat("amb_tundra_lesserdog", "room == room_tundra_lesserdog",
+    "Another sentry station stands here, guarded by a dog in armour whose neck can stretch impossibly long. A save point glows nearby, and a dog house sits against the wall.");
+beats += AmbBeat("amb_tundra_icehole", "room == room_tundra_icehole",
+    "A small alcove where two lumpy snow sculptures have been built, rough likenesses of two skeletons. A hole in the floor here drops down to somewhere below.");
+beats += AmbBeat("amb_tundra_iceentrance", "room == room_tundra_iceentrance",
+    "A long, cavernous room of ice. Slippery patches send you sliding when you step on them, and holes gape in the floor ready to drop you to the level below. Pick a path carefully between them.");
+beats += AmbBeat("amb_tundra_iceexit_new", "room == room_tundra_iceexit_new",
+    "The far end of the icy cavern, its walls glittering with frost. A shaggy, antlered monster stands off to one side, and the way out leads on toward warmer ground.");
+beats += AmbBeat("amb_tundra_iceexit", "room == room_tundra_iceexit",
+    "A short passage leading out of the ice caves. Far off in the snowy distance, the tiny shape of a house can be seen, hinting at the town ahead.");
+beats += AmbBeat("amb_tundra_poffzone", "room == room_tundra_poffzone",
+    "A snowy hollow scattered with soft mounds of powder. A small dog house sits here, and a dog snuffles happily about among the drifts.");
+beats += AmbBeat("amb_tundra_dangerbridge", "room == room_tundra_dangerbridge",
+    "A long rope bridge stretches across a deep, fog-filled chasm. An array of menacing contraptions - a dog, cannons, spears, and a flamethrower - has been rigged at the far end. Cross the bridge to go on.");
+beats += AmbBeat("amb_tundra_town", "room == room_tundra_town",
+    "Snowdin town: a long, cheerful street of wooden buildings strung with coloured lights, a decorated tree glowing at its heart. Shops, an inn, and a warm-looking diner line the way, townsfolk milling about in the snow. At the far end stand two mailboxes and a house.");
+beats += AmbBeat("amb_tundra_town2", "room == room_tundra_town2",
+    "The quieter edge of town, past the last of the buildings. A wolf heaves blocks of ice one by one onto a conveyor that carries them off into the water, and a family of small slime monsters lingers nearby.");
+beats += AmbBeat("amb_tundra_dock", "room == room_tundra_dock",
+    "A wooden dock at the water's edge, dark water lapping quietly against the boards. A strange, hooded boatman waits here, ready to carry you onward if you ask.");
+beats += AmbBeat("amb_tundra_inn", "room == room_tundra_inn",
+    "The cosy lobby of the Snowdin inn. A front desk stands to one side, the innkeeper waiting behind it, ready to rent you a room for the night.");
+beats += AmbBeat("amb_tundra_inn_2f", "room == room_tundra_inn_2f",
+    "A snug little bedroom upstairs in the inn. A bed waits invitingly; a good rest here will mend your wounds.");
+beats += AmbBeat("amb_tundra_grillby", "room == room_tundra_grillby",
+    "Grillby's, the town's warm and lively diner. Booths and tables fill the room, a crowd of dogs and other regulars gathered about, and behind the bar stands the owner - a quiet monster made of living fire.");
+beats += AmbBeat("amb_tundra_library", "room == room_tundra_library",
+    "The town library - though the sign outside spells it librarby. Rows of shelves and reading tables fill the room, and a few studious monsters look up from their work as you enter.");
+beats += AmbBeat("amb_tundra_garage", "room == room_tundra_garage",
+    "A cluttered garage. A dog bed, a food bowl, and a well-chewed toy lie about the floor, and a strange barred contraption stands against one wall.");
+beats += AmbBeat("amb_tundra_sanshouse", "room == room_tundra_sanshouse",
+    "The front room of the skeleton brothers' house, cosy and lived-in. A couch faces a television, a kitchen opens off to the right, and doors lead away to the bedrooms.");
+beats += AmbBeat("amb_tundra_paproom", "room == room_tundra_paproom",
+    "A bedroom belonging to the taller brother. A race-car bed sits against one wall, along with a computer, a bookshelf, a box of bones, and an action figure posed on a small table.");
+beats += AmbBeat("amb_tundra_sansroom", "room == room_tundra_sansroom",
+    "The shorter brother's bedroom, and a spectacular mess. Clothes and rubbish cover the floor, a self-sustaining tornado of trash spins quietly in one corner, and a treadmill sits buried and unused.");
+beats += AmbBeat("amb_tundra_sansroom_dark", "room == room_tundra_sansroom_dark",
+    "A wide, pitch-dark room. Something waits in the blackness ahead, just out of sight.");
+beats += AmbBeat("amb_tundra_sansbasement", "room == room_tundra_sansbasement",
+    "A hidden workshop behind a locked door, dusty and long forgotten. Odd papers are pinned to the walls, and a large object rests under a cloth in the corner.");
+// ---- Waterfall: the deep blue caverns (verified against _rooms_all.txt, room_water*) ----
+beats += AmbBeat("amb_water1", "room == room_water1",
+    "You leave the snow behind and step into Waterfall, a vast cavern of deep blue. Water trickles and echoes all around, glowing plants light the gloom, and the air turns warm and damp.");
+beats += AmbBeat("amb_water2", "room == room_water2",
+    "A quiet ledge where a wooden sentry station stands, unattended and suspiciously casual. A save point glows nearby, and a single blue echo flower grows here, softly repeating the last thing whispered to it.");
+beats += AmbBeat("amb_water3", "room == room_water3",
+    "A waterfall spills down one wall into a channel of flowing water. A large rock rests on the bank; push it into the stream to block the current so you can cross. A sign and an echo flower stand nearby.");
+beats += AmbBeat("amb_water3a", "room == room_water3A",
+    "A small alcove lit by a pair of tall, glowing blue mushrooms.");
+beats += AmbBeat("amb_water4", "room == room_water4",
+    "A thick patch of tall grass grows in the middle of this room, high enough to hide in. On a ledge far above, a tall figure in armour stands watching, utterly still. A save point glows at the far side.");
+beats += AmbBeat("amb_water_bridgepuzz1", "room == room_water_bridgepuzz1",
+    "A bridge-seed puzzle. Clusters of seeds drift in the water; walk into them to push them together, and where they gather they sprout into solid lily-pad bridges you can cross. A sign nearby explains it.");
+beats += AmbBeat("amb_water5", "room == room_water5",
+    "A larger stretch of water strewn with drifting bridge-seeds. Push the seeds together to grow lily-pad bridges across the water. Glowing mushrooms and a bell-shaped blossom light the room, and a sign offers a hint.");
+beats += AmbBeat("amb_water5a", "room == room_water5A",
+    "A small side room beside the water, lit by the soft glow of an echo flower.");
+beats += AmbBeat("amb_water6", "room == room_water6",
+    "A breathtaking room. The high ceiling glitters with countless tiny lights like a night sky full of stars, though they are only gems in the rock. Echo flowers grow here, each still whispering a wish that someone once breathed into it, and a telescope stands for gazing up.");
+beats += AmbBeat("amb_water7", "room == room_water7",
+    "A wooden boardwalk over dark water, where a small, fussy water-loving monster busily scrubs the planks clean. A row of signs lines the path.");
+beats += AmbBeat("amb_water8", "room == room_water8",
+    "A long wooden boardwalk stretching out across open water.");
+beats += AmbBeat("amb_water9", "room == room_water9",
+    "A boardwalk with a tall patch of grass growing thick at its edge, just deep enough to hide in.");
+beats += AmbBeat("amb_water_savepoint1", "room == room_water_savepoint1",
+    "A quiet nook with a save point, a glowing echo flower, and a little mouse hole worn in the wall.");
+beats += AmbBeat("amb_water11", "room == room_water11",
+    "A dim room where motes of light drift through the air. A telescope stands here for looking out over the water, and a small sentry station sits nearby.");
+beats += AmbBeat("amb_water_nicecream", "room == room_water_nicecream",
+    "A glowing-mushroom grotto where the Nice Cream vendor has set up his cart, selling frozen treats with kind words written on the wrappers.");
+beats += AmbBeat("amb_water12", "room == room_water12",
+    "A vast, beautiful cavern glowing deep blue. Shining water pours down the walls, luminous plants drift and sway, and echo flowers whisper here and there. It is one of the loveliest sights in the whole Underground.");
+beats += AmbBeat("amb_water_shoe", "room == room_water_shoe",
+    "A small clearing among glowing mushrooms, with a patch of tall grass at its heart.");
+beats += AmbBeat("amb_water_bird", "room == room_water_bird",
+    "A ledge at the edge of a wide gap. A large, gentle bird waits here, willing to carry anyone small enough across to the far side.");
+beats += AmbBeat("amb_water_onionsan", "room == room_water_onionsan",
+    "A long, shallow channel where the water has sunk worryingly low. A big, floppy, friendly sea creature lingers in the shallows, overjoyed to have someone to talk to.");
+beats += AmbBeat("amb_water14", "room == room_water14",
+    "A rainy ledge where soft, sorrowful singing drifts on the air. A shy, fish-like monster hovers here, half-hiding behind her own song, and signs stand along the path.");
+beats += AmbBeat("amb_water_piano", "room == room_water_piano",
+    "A room with an old piano against the wall. Playing the right melody - the tune hinted at elsewhere in the caverns - will open the way to a hidden reward.");
+beats += AmbBeat("amb_water_dogroom", "room == room_water_dogroom",
+    "A hushed, shrine-like room. A curious old artifact rests here on a pedestal, waiting to be taken.");
+beats += AmbBeat("amb_water_statue", "room == room_water_statue",
+    "A stone statue sits alone in endless rain, silent and still. A box of umbrellas stands nearby; shelter the statue from the rain and it reveals the gentle music it was always meant to play.");
+beats += AmbBeat("amb_water_prewaterfall", "room == room_water_prewaterfall",
+    "The rain begins here. A box of umbrellas stands beside a sign - take one to stay dry on the long walk ahead.");
+beats += AmbBeat("amb_water_waterfall", "room == room_water_waterfall",
+    "A long path through steady rain, waterfalls curtaining down on either side. It is a beautiful, wistful walk.");
+beats += AmbBeat("amb_water_waterfall2", "room == room_water_waterfall2",
+    "A tall, rainy passage climbing upward, a single echo flower glowing softly along the way.");
+beats += AmbBeat("amb_water_waterfall3", "room == room_water_waterfall3",
+    "A rainy ledge with a wide, sweeping view: far across the water, the great grey castle of the King rises in the distance - the goal of the whole long journey.");
+beats += AmbBeat("amb_water_waterfall4", "room == room_water_waterfall4",
+    "A rainy path where a box of umbrellas waits to be refilled. A muscular, horse-like monster flexes and winks nearby.");
+beats += AmbBeat("amb_water_preundyne", "room == room_water_preundyne",
+    "A quiet ledge in the rain, with a save point. The path ahead climbs onto a high wooden bridge.");
+beats += AmbBeat("amb_water_undynebridge", "room == room_water_undynebridge",
+    "A high, narrow bridge over a deep chasm, lashed with rain. This is dangerous ground - the armoured figure hunts here, hurling spears from the dark. Keep moving.");
+beats += AmbBeat("amb_water_undynebridgeend", "room == room_water_undynebridgeend",
+    "The far end of the bridge, hemmed in with nowhere left to run as spears rain down out of the gloom.");
+beats += AmbBeat("amb_water_trashzone1", "room == room_water_trashzone1",
+    "A dim dump at the foot of the falls, where everything that tumbles into the Underground washes up. Heaps of garbage lie in shallow water, and a water-loving monster potters among them.");
+beats += AmbBeat("amb_water_trashsavepoint", "room == room_water_trashsavepoint",
+    "A patch of the garbage dump with a save point, standing in shallow water among the heaped rubbish.");
+beats += AmbBeat("amb_water_trashzone2", "room == room_water_trashzone2",
+    "A tall, junk-filled chamber. Among the piles of trash and a rusted old cooler floats a lumpy, furious dummy, spoiling for a fight.");
+beats += AmbBeat("amb_water_friendlyhub", "room == room_water_friendlyhub",
+    "A calmer stretch of Waterfall with a save point and a sign. Cosy little houses stand nearby, and a friendly clam-like monster chatters away by the path.");
+beats += AmbBeat("amb_water_undyneyard", "room == room_water_undyneyard",
+    "The yard outside a bright, fish-shaped house. A door waits to be knocked on - this is the home of the Underground's fierce captain of the guard.");
+beats += AmbBeat("amb_water_undynehouse", "room == room_water_undynehouse",
+    "The inside of Undyne's fish-shaped house, warm and full of character. A drawer stands against one wall, oddly stuffed with bones, and there are shelves and keepsakes to look over.");
+beats += AmbBeat("amb_water_blookyard", "room == room_water_blookyard",
+    "A quiet yard with a couple of small houses. A little white ghost drifts here, faint and shy.");
+beats += AmbBeat("amb_water_blookhouse", "room == room_water_blookhouse",
+    "The ghost's home, small and a touch melancholy. A computer hums in the corner, a fridge stands nearby, and a stack of music CDs waits beside a spot on the floor where you can lie down and feel like garbage together.");
+beats += AmbBeat("amb_water_hapstablook", "room == room_water_hapstablook",
+    "A neighbouring house, empty and quiet, its shelves lined with old diaries left behind by whoever once dreamed here.");
+beats += AmbBeat("amb_water_farm", "room == room_water_farm",
+    "A damp little snail farm. Snails inch slowly across their pen, and a small race track waits for anyone who fancies betting on the fastest one.");
+beats += AmbBeat("amb_water_prebird", "room == room_water_prebird",
+    "A grassy ledge with a thick patch of tall grass and a few signs along the path.");
+beats += AmbBeat("amb_water_shop", "room == room_water_shop",
+    "A cosy shop carved into the rock, tended by a cheerful old turtle who has watched over the Underground's whole long history.");
+beats += AmbBeat("amb_water_dock", "room == room_water_dock",
+    "A small dock at the water's edge, where the hooded boatman waits to ferry you onward if you wish.");
+beats += AmbBeat("amb_water15", "room == room_water15",
+    "A dark cavern flickering with glowing fireflies and drifting echoes, shallow water pooling across the floor.");
+beats += AmbBeat("amb_water16", "room == room_water16",
+    "A dark room lit only by clusters of glowing mushrooms. Stepping near a mushroom makes it flare bright, lighting the way forward from one to the next.");
+beats += AmbBeat("amb_water_temvillage", "room == room_water_temvillage",
+    "Temmie Village, a snug burrow full of excitable little cat-dog creatures who all chatter at once. There is a shop here, a save point, and a Temmie who will - for the right price - sell you the chance to pay for her college.");
+beats += AmbBeat("amb_water17", "room == room_water17",
+    "A pitch-dark room. A lantern can be picked up and carried to light a small circle around you; glowing stones and other lanterns help mark the safe way through.");
+beats += AmbBeat("amb_water18", "room == room_water18",
+    "A darkened path with tall grass and shallow water. Ahead, the armoured figure smashes clean through a wall of blocks in furious pursuit.");
+beats += AmbBeat("amb_water19", "room == room_water19",
+    "A tall, glowing shaft lined with whispering echo flowers, a save point resting partway up. The flowers here carry an uneasy warning.");
+beats += AmbBeat("amb_water20", "room == room_water20",
+    "A short, dim passage leading onward through the caverns.");
+beats += AmbBeat("amb_water21", "room == room_water21",
+    "A small puzzle room, a switch box set into the wall.");
+beats += AmbBeat("amb_water13", "room == room_water13",
+    "Another bridge-seed puzzle, set amid a patch of tall grass. Push the drifting seeds together to sprout lily-pad bridges across the water.");
+beats += AmbBeat("amb_water_mushroom", "room == room_water_mushroom",
+    "A small, quiet room with a sign to read and a curious mushroom-like monster.");
+beats += AmbBeat("amb_water_undynefinal", "room == room_water_undynefinal",
+    "A lonely cliff-top bathed in golden light at the edge of Waterfall. The armoured figure makes her stand here, and there is nowhere left to run - only to turn and face her.");
+beats += AmbBeat("amb_water_undynefinal2", "room == room_water_undynefinal2",
+    "A path fleeing toward a wall of rising heat, the armoured figure giving relentless chase.");
+beats += AmbBeat("amb_water_undynefinal3", "room == room_water_undynefinal3",
+    "The border between Waterfall and Hotland, marked by a sign. The air here turns suddenly, punishingly hot.");
+// ---- Hotland: red rock over lava, Alphys's lab, MTT Resort (verified against _rooms_all.txt) ----
+beats += AmbBeat("amb_fire1", "room == room_fire1",
+    "You arrive in Hotland. The air is a wall of dry heat, the rock glows red, and far below churns a river of lava. A sentry station stands nearby with its watchman fast asleep, and a water cooler offers a cup of cold water.");
+beats += AmbBeat("amb_fire2", "room == room_fire2",
+    "A hot, narrow ledge above the lava. A water cooler stands here, and a chatty clam-like monster lingers by the path.");
+beats += AmbBeat("amb_fire_prelab", "room == room_fire_prelab",
+    "A ledge before a large grey laboratory built into the rock, its door sealed shut. A save point glows nearby.");
+beats += AmbBeat("amb_fire_dock", "room == room_fire_dock",
+    "A small dock at the lava's edge, where the hooded boatman waits to carry you onward if you wish.");
+beats += AmbBeat("amb_fire_lab1", "room == room_fire_lab1",
+    "The dim interior of the Royal Scientist's laboratory. A gigantic monitor dominates one wall, and the room is cluttered with instruments, a fridge, and bags of dog food. It is unsettlingly quiet.");
+beats += AmbBeat("amb_fire_lab2", "room == room_fire_lab2",
+    "A lower floor of the lab, escalators humming at either side. The shelves and cabinets here are packed with the scientist's not-so-secret collection of cartoons and figurines.");
+beats += AmbBeat("amb_fire3", "room == room_fire3",
+    "A hot junction of red rock, pipes running along the ground and warning notices posted about.");
+beats += AmbBeat("amb_fire5", "room == room_fire5",
+    "A tall shaft criss-crossed by moving conveyor belts, with jets of blue steam that puff you across the gaps. Ride the belts and the vents to climb it. A small volcano-like monster wanders here.");
+beats += AmbBeat("amb_fire6", "room == room_fire6",
+    "A room of steam vents. Stepping onto a vent launches you the way it blows; chain the jets together to cross the lava to the far side. A save point glows nearby.");
+beats += AmbBeat("amb_fire6a", "room == room_fire6A",
+    "A smaller room of conveyor belts and a steam vent, a fiery bird-like monster hovering nearby.");
+beats += AmbBeat("amb_fire_lasers1", "room == room_fire_lasers1",
+    "A laser puzzle. Beams of light bar the way: orange beams you must walk through while moving, blue beams only hurt if you move, so stand still to pass them. A switch at the end flips them all on or off.");
+beats += AmbBeat("amb_fire7", "room == room_fire7",
+    "A steam-vent room with a locked chip-card door in the middle. Ride the jets of steam across to reach the far side.");
+beats += AmbBeat("amb_fire8", "room == room_fire8",
+    "A hot room lit by a tall beacon tower, gears turning in the walls and a blue laser barring part of the path.");
+beats += AmbBeat("amb_fire9", "room == room_fire9",
+    "A small hot room, a beacon tower glowing at its top and gears set into the walls.");
+beats += AmbBeat("amb_fire_shootguy_1", "room == room_fire_shootguy_1",
+    "A shooting puzzle. A cannon sits at the bottom of the room and orange boxes float above; line the cannon up and fire to blast the boxes out of the way and clear the path.");
+beats += AmbBeat("amb_fire_shootguy_2", "room == room_fire_shootguy_2",
+    "Another shooting puzzle - aim the cannon and fire to knock the floating orange boxes aside.");
+beats += AmbBeat("amb_fire_shootguy_3", "room == room_fire_shootguy_3",
+    "A larger shooting puzzle, more orange boxes to blast clear with the cannon before you can pass.");
+beats += AmbBeat("amb_fire_shootguy_4", "room == room_fire_shootguy_4",
+    "A shooting puzzle - line up the cannon and fire to clear the floating orange boxes from your path.");
+beats += AmbBeat("amb_fire_shootguy_5", "room == room_fire_shootguy_5",
+    "A shooting puzzle set within the CORE, orange boxes to blast aside with the cannon.");
+beats += AmbBeat("amb_fire_turn", "room == room_fire_turn",
+    "A hot corner where jets of steam bounce you around the bend.");
+beats += AmbBeat("amb_fire4", "room == room_fire4",
+    "A large steam-vent room, jets launching you rightward from ledge to ledge across the lava.");
+beats += AmbBeat("amb_fire_cookingshow", "room == room_fire_cookingshow",
+    "A brightly-lit cooking-show stage, complete with a counter and dazzling studio lights. A robotic television star is putting on a live cooking programme here.");
+beats += AmbBeat("amb_fire_savepoint1", "room == room_fire_savepoint1",
+    "A ledge with a save point and a sweeping view of the CORE, the great glowing engine of the Underground, rising in the distance.");
+beats += AmbBeat("amb_fire_hotdog", "room == room_fire_hotdog",
+    "A sentry station where a certain lazy skeleton sells hot dogs, a warm and greasy smell hanging in the air.");
+beats += AmbBeat("amb_fire_walkandbranch", "room == room_fire_walkandbranch",
+    "A hot branching path over the lava, warning notices posted along it and an aeroplane-like monster drifting nearby.");
+beats += AmbBeat("amb_fire_sorry", "room == room_fire_sorry",
+    "A small out-of-the-way room with an art-class sign on the wall.");
+beats += AmbBeat("amb_fire_apron", "room == room_fire_apron",
+    "A hot ledge where a wave-making monster lingers by the path.");
+beats += AmbBeat("amb_fire10", "room == room_fire10",
+    "A conveyor-belt room with a row of three switches to set in the right pattern before the way opens.");
+beats += AmbBeat("amb_fire_rpuzzle", "room == room_fire_rpuzzle",
+    "A puzzle of steam vents and conveyor belts. Bounce between the jets and ride the belts to shift the blocks and cross.");
+beats += AmbBeat("amb_fire_mewmew2", "room == room_fire_mewmew2",
+    "A hot room with a save point and a little mouse hole worn in the wall.");
+beats += AmbBeat("amb_fire_boysnightout", "room == room_fire_boysnightout",
+    "A hot room of steam vents, a fiery bird-like monster hanging about among the jets.");
+beats += AmbBeat("amb_fire_newsreport", "room == room_fire_newsreport",
+    "A studio set where the robotic television star is filming a live news report, lasers and steam vents rigged around the stage.");
+beats += AmbBeat("amb_fire_coreview2", "room == room_fire_coreview2",
+    "A ledge with another grand view of the CORE glowing in the distance.");
+beats += AmbBeat("amb_fire_spidershop", "room == room_fire_spidershop",
+    "A cosy corner strung with spider webs, where a cheerful spider-girl runs a bake sale. Leave a few coins and the spiders will sell you a treat - all made for spiders, by spiders.");
+beats += AmbBeat("amb_fire_walkandbranch2", "room == room_fire_walkandbranch2",
+    "A large steam-vent maze climbing upward, jets of steam launching you from one ledge to the next.");
+beats += AmbBeat("amb_fire_conveyorlaser", "room == room_fire_conveyorlaser",
+    "A room combining moving conveyor belts with blue laser beams - stay perfectly still through the blue beams while the belts carry you along. An echo flower glows to one side.");
+beats += AmbBeat("amb_fire_preshootguy4", "room == room_fire_preshootguy4",
+    "A hot little room lit by a beacon tower, a couple of gem-like child monsters loitering here.");
+beats += AmbBeat("amb_fire_savepoint2", "room == room_fire_savepoint2",
+    "A hot ledge strung with spider silk, a save point glowing softly here.");
+beats += AmbBeat("amb_fire_spider", "room == room_fire_spider",
+    "A long, web-draped corridor deep in spider territory. Sticky silk slows your steps, spiders watch from above, and their mistress is not far off.");
+beats += AmbBeat("amb_fire_pacing", "room == room_fire_pacing",
+    "A small room with a sign to read and a monster pacing about.");
+beats += AmbBeat("amb_fire_multitile", "room == room_fire_multitile",
+    "A huge coloured-tile puzzle: a long floor of tiles in many colours, each colour carrying its own rule - some safe, some not - which a voice calls out before you cross. A little volcano-monster waits nearby.");
+beats += AmbBeat("amb_fire_hotelfront_1", "room == room_fire_hotelfront_1",
+    "The grand entrance to the MTT Resort, a glitzy hotel carved out over the lava. The Nice Cream vendor has set up his cart by the doors.");
+beats += AmbBeat("amb_fire_hotelfront_2", "room == room_fire_hotelfront_2",
+    "The approach to the hotel doors, plush red carpet underfoot.");
+beats += AmbBeat("amb_fire_hotellobby", "room == room_fire_hotellobby",
+    "The opulent lobby of the MTT Resort, gaudy and gold. A fountain shaped like the robotic star bubbles in the centre, a receptionist waits at the desk, and well-dressed monster guests mill about. A save point glows nearby, and an elevator stands ready.");
+beats += AmbBeat("amb_fire_restaurant", "room == room_fire_restaurant",
+    "The hotel's fancy restaurant, tables set with care and potted plants along the walls, guests dining quietly.");
+beats += AmbBeat("amb_fire_hoteldoors", "room == room_fire_hoteldoors",
+    "A hallway of guest-room doors, a weary slime janitor mopping the floor.");
+beats += AmbBeat("amb_fire_hotelbed", "room == room_fire_hotelbed",
+    "A plush hotel bedroom, a large soft bed waiting - a rest here will restore you.");
+beats += AmbBeat("amb_fire_precore", "room == room_fire_precore",
+    "A dark shaft leading down toward the CORE, the hum of heavy machinery rising from below.");
+beats += AmbBeat("amb_fire_core1", "room == room_fire_core1",
+    "The entrance to the CORE, the Underground's vast power plant. Dark metal walls glow with strips of blue light, the air thrumming with energy. An elevator stands here.");
+beats += AmbBeat("amb_fire_core2", "room == room_fire_core2",
+    "A CORE chamber lit an eerie blue, small flames flickering in braziers along the walls.");
+beats += AmbBeat("amb_fire_core3", "room == room_fire_core3",
+    "A CORE room lined with glowing totems, a great door set in the wall ahead.");
+beats += AmbBeat("amb_fire_core4", "room == room_fire_core4",
+    "A CORE room barred by laser beams, a switch nearby to toggle them - walk through the orange, stand still for the blue.");
+beats += AmbBeat("amb_fire_core5", "room == room_fire_core5",
+    "A small CORE chamber glowing with totems and blue light.");
+beats += AmbBeat("amb_fire_core_freebattle", "room == room_fire_core_freebattle",
+    "A small CORE chamber where a shadowy foe lurks in the blue light.");
+beats += AmbBeat("amb_fire_core_laserfun", "room == room_fire_core_laserfun",
+    "A long CORE hall crossed by a gauntlet of blue and orange laser beams. Walk through the orange, freeze still for the blue.");
+beats += AmbBeat("amb_fire_core_branch", "room == room_fire_core_branch",
+    "A CORE junction with a save point and signs, glowing light-strips marking several ways onward. It is easy to get turned around in here.");
+beats += AmbBeat("amb_fire_core_bottomleft", "room == room_fire_core_bottomleft",
+    "A CORE corridor with conveyor belts running along the floor and blue light-strips glowing on the dark walls.");
+beats += AmbBeat("amb_fire_core_left", "room == room_fire_core_left",
+    "A CORE corridor branching off to the left, glowing totems set in the walls.");
+beats += AmbBeat("amb_fire_core_topleft", "room == room_fire_core_topleft",
+    "A CORE corridor junction, blue light-strips lining the dark metal walls.");
+beats += AmbBeat("amb_fire_core_top", "room == room_fire_core_top",
+    "A CORE corridor near the top of the maze, signs posted and light-strips glowing.");
+beats += AmbBeat("amb_fire_core_topright", "room == room_fire_core_topright",
+    "A CORE corridor junction humming with power, blue light running along the walls.");
+beats += AmbBeat("amb_fire_core_right", "room == room_fire_core_right",
+    "A CORE corridor where a shimmering force-field seals one of the doors.");
+beats += AmbBeat("amb_fire_core_bottomright", "room == room_fire_core_bottomright",
+    "A CORE corner where a walkway bridges the dark drop, glowing totems standing guard.");
+beats += AmbBeat("amb_fire_core_center", "room == room_fire_core_center",
+    "The central CORE junction, paths branching in every direction, a shadowy foe prowling nearby.");
+beats += AmbBeat("amb_fire_core_treasureleft", "room == room_fire_core_treasureleft",
+    "A CORE alcove off the maze, holding something worth taking and a monster to talk to.");
+beats += AmbBeat("amb_fire_core_treasureright", "room == room_fire_core_treasureright",
+    "A CORE alcove tucked away off the maze, holding a small reward.");
+beats += AmbBeat("amb_fire_core_warrior", "room == room_fire_core_warrior",
+    "A CORE hall where a fierce warrior monster blocks the way, a switch glinting at the far end.");
+beats += AmbBeat("amb_fire_core_bridge", "room == room_fire_core_bridge",
+    "A long CORE bridge spanning a dark chasm, glowing totems lining the rails and light streaming overhead.");
+beats += AmbBeat("amb_fire_core_premett", "room == room_fire_core_premett",
+    "A CORE chamber with a save point and a great door ahead, an elevator waiting to one side.");
+beats += AmbBeat("amb_fire_core_metttest", "room == room_fire_core_metttest",
+    "A tall, dramatic CORE stage - the setting for a grand confrontation with the robotic star.");
+beats += AmbBeat("amb_fire_core_final", "room == room_fire_core_final",
+    "The far end of the CORE, an elevator waiting to carry you up out of the depths.");
+beats += AmbBeat("amb_fire_elevator", "room == room_fire_elevator || room == room_fire_finalelevator || room == room_fire_labelevator",
+    "A small elevator car, its control panel glowing beside the door.");
+beats += AmbBeat("amb_fire_elevator_gems", "room == room_fire_elevator_r1 || room == room_fire_elevator_r2 || room == room_fire_elevator_r3 || room == room_fire_elevator_l1 || room == room_fire_elevator_l2 || room == room_fire_elevator_l3",
+    "A small elevator car, the floor number glowing on a sign by the door.");
+// ---- The True Lab: dark and half-forgotten beneath the lab (verified against _rooms_all.txt) ----
+beats += AmbBeat("amb_truelab_elevatorinside", "room == room_truelab_elevatorinside",
+    "A dim elevator that has carried you somewhere you were never meant to go.");
+beats += AmbBeat("amb_truelab_elevator", "room == room_truelab_elevator",
+    "A dark landing outside the elevator, a heavy lab door standing ahead.");
+beats += AmbBeat("amb_truelab_hall1", "room == room_truelab_hall1",
+    "A dark laboratory hall, its walls lined with humming monitors that cast a sickly glow.");
+beats += AmbBeat("amb_truelab_hub", "room == room_truelab_hub",
+    "A shadowy hub where several lab doors meet. A save point glows here, dark withered plants stand in their pots, and a torn note lies on the floor.");
+beats += AmbBeat("amb_truelab_hall2", "room == room_truelab_hall2",
+    "A short, dark lab corridor, a monitor flickering on the wall.");
+beats += AmbBeat("amb_truelab_operatingroom", "room == room_truelab_operatingroom",
+    "A grim operating room half-lost in fog, empty tables and grimy sinks lined up in the gloom.");
+beats += AmbBeat("amb_truelab_redlever", "room == room_truelab_redlever",
+    "A dark room with a coloured lever on the wall - one of several to be set - and a torn note lying nearby.");
+beats += AmbBeat("amb_truelab_bluelever", "room == room_truelab_bluelever",
+    "A dark room with a coloured lever on the wall and a torn note on the floor.");
+beats += AmbBeat("amb_truelab_greenlever", "room == room_truelab_greenlever",
+    "A dark room with a coloured lever and a torn note lying beside it.");
+beats += AmbBeat("amb_truelab_prebed", "room == room_truelab_prebed",
+    "A dark corridor lined with glowing monitors.");
+beats += AmbBeat("amb_truelab_bedroom", "room == room_truelab_bedroom",
+    "A dim dormitory of empty beds shrouded in fog. Something watches from among them. A save point glows in one corner, and a key rests on one of the beds.");
+beats += AmbBeat("amb_truelab_mirror", "room == room_truelab_mirror",
+    "A long dark hall lined with mirrors. In the fog at the far end, a strange, shifting shape waits and watches.");
+beats += AmbBeat("amb_truelab_hall3", "room == room_truelab_hall3",
+    "Another dark lab corridor, monitors glowing faintly along the walls.");
+beats += AmbBeat("amb_truelab_shower", "room == room_truelab_shower",
+    "A small room with a drawn shower curtain, something lurking behind it.");
+beats += AmbBeat("amb_truelab_determination", "room == room_truelab_determination",
+    "A dark room built around a strange extraction machine. A save point glows here - though this one seems oddly, unsettlingly alive.");
+beats += AmbBeat("amb_truelab_tv", "room == room_truelab_tv",
+    "A dark room with an old television set and a coloured lever, a torn note on the floor.");
+beats += AmbBeat("amb_truelab_cooler", "room == room_truelab_cooler",
+    "A cold storage room, ranks of dark fridges humming beneath whirring fans. Something stirs among them.");
+beats += AmbBeat("amb_truelab_fan", "room == room_truelab_fan",
+    "A room walled with great spinning fans, fog curling between them. A shape moves in the mist.");
+beats += AmbBeat("amb_truelab_prepower", "room == room_truelab_prepower",
+    "A dark corridor of monitors leading toward the power room.");
+beats += AmbBeat("amb_truelab_power", "room == room_truelab_power",
+    "A small room holding the main power switch, ready to bring the lights back on.");
+beats += AmbBeat("amb_truelab_castle_elevator", "room == room_truelab_castle_elevator",
+    "An elevator ready to carry you up out of the true lab.");
+// ---- New Home: the King's grey city, Asgore's house, the castle (verified against _rooms_all.txt) ----
+beats += AmbBeat("amb_castle_elevatorout", "room == room_castle_elevatorout",
+    "You step out of the elevator into New Home, the King's grey city high above. A save point glows nearby, and a slow, mournful music hangs in the air.");
+beats += AmbBeat("amb_castle_precastle", "room == room_castle_precastle",
+    "A long grey approach toward the castle, the ruins of an old, old home looming quietly ahead.");
+beats += AmbBeat("amb_castle_front", "room == room_castle_front",
+    "The front of the castle, tall and grey and silent. A save point glows here.");
+beats += AmbBeat("amb_kitchen", "room == room_kitchen || room == room_kitchen_final",
+    "A tidy little kitchen. A freshly baked pie rests on the counter, filling the still air with a sweet and sorrowful smell.");
+beats += AmbBeat("amb_asghouse1", "room == room_asghouse1",
+    "You step into a home almost exactly like Toriel's - the same shape, the same rooms - but grey, hushed, and long abandoned, everything left just as it was. Stairs lead down from the entrance hall.");
+beats += AmbBeat("amb_asghouse2", "room == room_asghouse2",
+    "A living room that echoes Toriel's exactly: a reading chair beside a cold hearth, a dining table set for a family. But it is dim and empty now, coated in quiet dust.");
+beats += AmbBeat("amb_asghouse3", "room == room_asghouse3",
+    "A hallway like the one in Toriel's home, a mirror hanging on the wall. The bedrooms off this hall hold the belongings of children who are long gone.");
+beats += AmbBeat("amb_lastruins_corridor", "room == room_lastruins_corridor",
+    "A long grey corridor lined with plaques. Each one, as you pass, tells another piece of the Underground's sad and ancient history.");
+beats += AmbBeat("amb_sanscorridor", "room == room_sanscorridor",
+    "A vast hall of golden light, tall pillars throwing long shadows and sunlight streaming through great windows. A save point glows near the entrance, and far off at the other end, a figure waits to weigh the journey you have made.");
+beats += AmbBeat("amb_castle_finalshoehorn", "room == room_castle_finalshoehorn",
+    "A quiet grey chamber with a save point, the way narrowing toward the throne room ahead.");
+beats += AmbBeat("amb_castle_coffins2", "room == room_castle_coffins2",
+    "A solemn room lined with child-sized coffins, each one carefully made and marked with a name.");
+beats += AmbBeat("amb_castle_throneroom", "room == room_castle_throneroom",
+    "The throne room, carpeted with golden flowers that glow in the light pouring from above. Two thrones stand here, one of them draped and unused. This is where the King waits. A save point glows nearby.");
+beats += AmbBeat("amb_castle_prebarrier", "room == room_castle_prebarrier",
+    "A solemn grey chamber just before the barrier, a save point glowing softly here.");
+beats += AmbBeat("amb_castle_barrier", "room == room_castle_barrier",
+    "The barrier itself: a towering wall of blinding white light, the ancient magic that seals the whole Underground away from the world above.");
+beats += AmbBeat("amb_castle_trueexit", "room == room_castle_trueexit",
+    "A passage leading up and onward, toward the surface at last.");
+
+string gml = @"
+{
+    if (variable_global_exists(""nvda_opt_speech"") && global.nvda_opt_speech == 0) exit;
+    if (!variable_global_exists(""nvda_ready""))
+    {
+        global.nvda_init = external_define(""nvda_gm.dll"", ""gmnvda_init"", 0, 0, 1, 1);
+        global.nvda_speak = external_define(""nvda_gm.dll"", ""gmnvda_speak"", 0, 0, 1, 1);
+        external_call(global.nvda_init, """");
+        global.nvda_ready = 1;
+    }
+    if (!variable_global_exists(""nvda_speak_queue"")) global.nvda_speak_queue = external_define(""nvda_gm.dll"", ""gmnvda_speak_queue"", 0, 0, 1, 1);
+    if (!variable_global_exists(""nvda_cs_seen"")) global.nvda_cs_seen = ""|"";
+    if (!variable_global_exists(""nvda_now"")) global.nvda_now = 0;
+    global.nvda_now += 1;   // frame counter for the priority window (obj_time Step = once/frame)
+    if (!variable_global_exists(""nvda_room_prev"")) global.nvda_room_prev = -1;
+    global.nvda_roomchg = (global.nvda_room_prev != room);   // did we just change rooms this frame?
+    global.nvda_room_prev = room;
+    if (!variable_global_exists(""nvda_roomdesc"")) global.nvda_roomdesc = """";
+    if (global.nvda_roomchg) global.nvda_roomdesc = """";   // stale-clear; the matching AmbBeat re-sets it
+" + beats + @"
+    // L key: re-speak the current room's environmental description on demand (overworld only).
+    if (instance_exists(obj_mainchara) && keyboard_check_pressed(ord(""L"")))
+    {
+        if (global.nvda_roomdesc != """") external_call(global.nvda_speak, global.nvda_roomdesc);
+        else external_call(global.nvda_speak, ""There is no description for this area."");
+    }
+}
+";
+
+var g = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+g.QueueAppend(Data.Code.ByName("gml_Object_obj_time_Step_1"), gml);
+g.Import();
+Console.WriteLine("Injected cutscene audio descriptions (intro beats)");
 
 }
 
@@ -123,6 +897,16 @@ string gml = @"
         nvda_last_specm = ""<x>"";
         nvda_last_sel3 = -99;
     }
+    // New Game in progress (name entry, naming 1/2) -> reset the character-description
+    // seen-set so a fresh playthrough re-introduces everyone. Continue uses naming==3 and
+    // never touches this. In-memory only (no ini write at the title - the game holds
+    // undertale.ini open there); the cleared set is flushed once back in gameplay.
+    if ((naming == 1 || naming == 2) && variable_global_exists(""nvda_seen_chars"") && global.nvda_seen_chars != ""|"")
+        global.nvda_seen_chars = ""|"";
+    if ((naming == 1 || naming == 2) && variable_global_exists(""nvda_cs_seen"") && global.nvda_cs_seen != ""|"")
+        global.nvda_cs_seen = ""|"";
+    if ((naming == 1 || naming == 2) && variable_global_exists(""nvda_amb_seen"") && global.nvda_amb_seen != ""|"")
+        global.nvda_amb_seen = ""|"";
     var _say = """";
     if (naming != nvda_last_naming)
     {
@@ -708,7 +1492,8 @@ Console.WriteLine("Injected WASD overworld movement (obj_time Begin Step)");
 // ACT option text packed in global.msg[0] e.g. "   * Check         * Talk" (cols=spaces, rows=&; slots 0-2 left,3-5 right).
 
 string[] need = { "external_define","external_call","variable_global_exists","variable_instance_exists",
-                  "string","string_pos","string_copy","string_length","string_char_at","round","instance_exists" };
+                  "string","string_pos","string_copy","string_length","string_char_at","round","instance_exists",
+                  "keyboard_check_pressed","ord","string_lower" };
 foreach (var f in need) Data.Functions.EnsureDefined(f, Data.Strings);
 
 string bridge = @"
@@ -744,6 +1529,7 @@ string gml = @"
     {
         nvda_bset = 1; nvda_pmenu = -99; nvda_pc0 = -99; nvda_pc1 = -99;
         nvda_pc2 = -99; nvda_pc3 = -99; nvda_pc4 = -99; nvda_pinmenu = 0; nvda_prefix = """";
+        nvda_target_idx = -99;
     }
 
     var _inmenu = (active == 1 && global.mnfight == 0 && global.myfight == 0 && global.bmenuno == 0);
@@ -789,6 +1575,7 @@ string gml = @"
         if (global.bmenucoord[1] != nvda_pc1)
         {
             nvda_pc1 = global.bmenucoord[1];
+            nvda_target_idx = nvda_pc1;
             var _nm = global.monstername[nvda_pc1];
             var _hp = """";
             if (global.monstermaxhp[nvda_pc1] > 0) _hp = "", H P "" + string(global.monsterhp[nvda_pc1]) + "" of "" + string(global.monstermaxhp[nvda_pc1]);" + Spareable("nvda_pc1") + @"
@@ -879,12 +1666,89 @@ string gml = @"
             nvda_prefix = """";
         }
     }
+
+    // ---- Turn-free DESCRIBE key (D): read a physical description of the monster you're
+    // targeting. Works during FIGHT/ACT target-select (bmenuno 1/2/11) and the ACT options
+    // menu (10). It only SPEAKS - it never selects an act - so it never consumes a turn.
+    // The whole point of pacifist Undertale is not hurting the cute little monsters; this is
+    // how a blind player finds out they're cute.
+    if (keyboard_check_pressed(ord(""D"")))
+    {
+        var _ti = -1;
+        if (global.bmenuno == 1 || global.bmenuno == 2 || global.bmenuno == 11) _ti = global.bmenucoord[1];
+        else if (global.bmenuno == 10) _ti = nvda_target_idx;
+        if (_ti >= 0)
+        {
+            var _mn = global.monstername[_ti];
+            var _lc = string_lower(_mn);
+            while (string_length(_lc) > 0 && string_char_at(_lc, 1) == "" "") _lc = string_copy(_lc, 2, string_length(_lc) - 1);
+            while (string_length(_lc) > 0 && string_char_at(_lc, string_length(_lc)) == "" "") _lc = string_copy(_lc, 1, string_length(_lc) - 1);
+            var _md = """";
+            if (_lc == ""froggit"" || _lc == ""final froggit"") _md = ""A plump little frog-like monster, pale and soft, that sits blinking up at you with big round eyes and a wide, gentle mouth."";
+            else if (_lc == ""whimsun"") _md = ""A tiny, timid winged monster like a small moth. It has a little downturned face and trembles nervously, as if it is sorry to be fighting at all."";
+            else if (_lc == ""moldsmal"") _md = ""A wobbly mound of pale green jelly-mold. It jiggles gently in place and does not seem to have any idea how to hurt anyone."";
+            else if (_lc == ""migosp"") _md = ""A small dark beetle-like bug monster with round eyes and little waving arms. Away from a crowd it is shy and harmless."";
+            else if (_lc == ""vegetoid"") _md = ""A big, friendly vegetable monster rising out of the ground, shaped like a giant carrot with a wide grinning face full of blocky teeth."";
+            else if (_lc == ""loox"") _md = ""A round little monster covered in soft fur, with one big eye in the middle of its face. It looks grumpy, but really it just does not want to be picked on."";
+            else if (_lc == ""napstablook"") _md = ""A small, shy white ghost with a droopy face and half-closed sleepy eyes. It drifts quietly and always seems on the edge of tears."";
+            else if (_lc == ""dummy"") _md = ""A cloth training dummy on a wooden stand, with a plain stitched-on face. It stands there silently, waiting."";
+            else if (_lc == ""toriel"") _md = ""The tall, gentle goat-like monster in a long purple robe, standing between you and the door with a pained, protective look."";
+            else if (_lc == ""snowdrake"") _md = ""A small blue bird-monster built for the cold, with a crest of icy feathers. A teenager doing its best to land a good joke."";
+            else if (_lc == ""ice cap"" || _lc == ""icecap"") _md = ""A little furry monster nearly hidden beneath an enormous pointed cap of ice that it is extremely proud of. Only its eyes peek out from underneath."";
+            else if (_lc == ""gyftrot"") _md = ""A shaggy, weary deer-like monster whose antlers have been draped with junk by prank-playing kids. It just wants them taken off."";
+            else if (_lc == ""doggo"") _md = ""A dog-monster sitting in a wooden sentry post, gripping two glowing daggers, eyes darting about. It can only see things that move."";
+            else if (_lc == ""lesser dog"") _md = ""A small white dog-monster in a suit of armour, holding a sword, with a cheerfully lolling tongue and a neck that stretches longer the more excited it gets."";
+            else if (_lc == ""greater dog"") _md = ""A little white dog almost lost inside a huge suit of armour, tail wagging eagerly. It would much rather play than fight."";
+            else if (_lc == ""dogamy"") _md = ""One of a married pair of dog-monsters in black hooded robes, swinging a large axe and sniffing the air for your scent."";
+            else if (_lc == ""dogaressa"") _md = ""One of a married pair of dog-monsters in black hooded robes, padding beside her husband with an axe in paw."";
+            else if (_lc == ""papyrus"") _md = ""The very tall, lanky skeleton in his homemade white costume and long red scarf, striking a heroic pose as he faces you."";
+            else if (_lc == ""chilldrake"") _md = ""A cheeky blue bird-monster, cousin of the Snowdrake, with an icy feathered crest and an even cooler attitude."";
+            // ---- Waterfall ----
+            else if (_lc == ""mad dummy"") _md = ""A cloth dummy floating in the air, shaking with rage as an angry ghost throws its voice through it. Its stitched face is twisted into a furious scowl."";
+            else if (_lc == ""aaron"") _md = ""A muscular seahorse-like monster with a confident grin, endlessly flexing his enormous arms. He is far more interested in showing off than fighting."";
+            else if (_lc == ""woshua"") _md = ""A small blue monster shaped a bit like a crab, with a scrubbing brush for a crest. It is obsessed with cleanliness and just wants everything tidy."";
+            else if (_lc == ""moldbygg"") _md = ""A tall, wobbling column of pale green mold, like a taller cousin of the Moldsmal. It sways gently and loves a good hug."";
+            else if (_lc == ""temmie"") _md = ""A strange little creature drawn in a crude, scribbly style: a cat-like face with big ears and wide eyes on a small brown furry body."";
+            else if (_lc == ""shyren"") _md = ""A shy mermaid-like monster who hides her face, humming a quiet, wavering tune. She is far too bashful to look at you directly."";
+            else if (_lc == ""glyde"") _md = ""A fuzzy, cloud-like monster in a bomber jacket, drifting with an awkward, trying-too-hard cool. A rare wanderer not quite sure it belongs."";
+            else if (_lc == ""jerry"") _md = ""A small, lumpy grey monster with a permanently smug, oblivious expression. Frankly, nobody enjoys having Jerry around."";
+            else if (_lc == ""undyne"") _md = ""A tall, powerful fish-warrior in gleaming armour, red hair streaming and one eye blazing behind an eyepatch as she summons glowing spears. The head of the Royal Guard, and she will not back down."";
+            // ---- Hotland and the CORE ----
+            else if (_lc == ""vulkin"") _md = ""A small, round volcano-monster glowing warm at its crater, with stubby arms and an eager, beaming face. It only wants to help, even when its help burns a little."";
+            else if (_lc == ""tsunderplane"") _md = ""A fighter-plane monster with a blushing, bashful face on its nose. It insists it is absolutely not flying this close to you on purpose."";
+            else if (_lc == ""pyrope"") _md = ""A round, flaming monster like a living ember with a wide grin, radiating heat and wanting everything hotter."";
+            else if (_lc == ""madjick"") _md = ""A tall, cloaked wizard-monster in a wide, pointed hat, with two glowing magic orbs circling it. Only its glinting eyes show beneath the brim."";
+            else if (_lc == ""knight knight"") _md = ""An enormous, heavily armoured monster like a mountain of a knight, with a crescent-moon helm and a massive mace. Slow, sleepy, and immensely strong."";
+            else if (_lc == ""final froggit"") _md = ""A tougher, older Froggit from the deeper Underground. The same soft, pale frog body and big eyes, but with a wiser, more determined look."";
+            else if (_lc == ""whimsalot"") _md = ""A Whimsun grown into a tiny armoured knight, with little wings, a helmet and a spear, bravely trying to look fierce."";
+            else if (_lc == ""astigmatism"") _md = ""A round yellow monster with one big eye and a wide, toothy mouth, glaring sharply. It is very insistent that you pay attention."";
+            else if (_lc == ""migospel"") _md = ""A Migosp that has found its confidence: a little beetle-monster waving its arms cheerfully to a beat only it can hear."";
+            else if (_lc == ""so sorry"") _md = ""A small, flustered dragon-like monster in formal wear, tripping over its own apologies. It genuinely did not mean to be here and is terribly sorry."";
+            else if (_lc == ""muffet"") _md = ""An elegant purple spider-monster with five eyes and five arms, in a frilly outfit, a teacup balanced daintily in one hand as her pet spiders skitter around her."";
+            else if (_lc == ""mettaton"") _md = ""The rectangular metal box robot on a single wheel, dials and a screen on its front and slim arms out to either side, hosting this like a dazzling TV show."";
+            else if (_lc == ""mettaton ex"" || _lc == ""mettatonex"") _md = ""A fabulous robot in a sleek humanoid form, all black and pink, balanced on one wheeled leg in a dramatic pose under the stage lights."";
+            else if (_lc == ""mettaton neo"") _md = ""A towering battle-form robot bristling with cannons and armour, wings spread, built to look utterly unstoppable."";
+            // ---- Bosses and the amalgamates ----
+            else if (_lc == ""asgore"") _md = ""An enormous goat-king in purple armour over a royal cape, huge and broad-shouldered, with long curved horns and a golden beard. He lifts a great trident, and his eyes are full of sorrow."";
+            else if (_lc == ""sans"") _md = ""The short skeleton in the blue hooded jacket, hands in his pockets, grinning as ever, one eye flickering with a strange blue light. He does not seem to be taking this seriously, which is the most dangerous thing about him."";
+            else if (_lc == ""endogeny"") _md = ""A large, unsettling amalgam of many dog-monsters melted together, a dripping white mass with a single dog-like face and too many limbs. It bounds toward you wanting to play."";
+            else if (_lc == ""reaper bird"") _md = ""A tall, eerie amalgam of bird-monsters, dark-winged with a long neck and a hollow, staring face. It drifts unnaturally, several beings at once."";
+            else if (_lc == ""lemon bread"") _md = ""A pale amalgam of monster-parts fused into a long, finned, snake-like body with too many mouths, weaving with an odd grace."";
+            else if (_lc == ""memoryhead"") _md = ""A drifting, half-formed amalgam like a melting white face on a stalk, murmuring softly and reaching toward you as if it knows you."";
+            else if (_lc == ""snowdrake's mother"" || _lc == ""snowman"" || string_pos(""snowdrake's"", _lc) > 0) _md = ""A large, gentle bird-monster, mother of the little Snowdrake, her feathers pale and soft. She carries a quiet, tired sadness."";
+            // ---- Hard-mode Ruins variants ----
+            else if (_lc == ""moldessa"") _md = ""A hard-mode cousin of the Moldsmal: a wobbling mound of mold with a bit more attitude."";
+            else if (_lc == ""parsnik"") _md = ""A hard-mode cousin of the Vegetoid: a large root-vegetable monster with a snappier grin."";
+            if (_md == """") _md = ""No description written yet for "" + _mn + ""."";
+            external_call(global.nvda_speak, _md);
+        }
+    }
 }";
 
 var g = new UndertaleModLib.Compiler.CodeImportGroup(Data);
 g.QueueAppend(Data.Code.ByName("gml_Object_obj_battlecontroller_Draw_0"), gml);
 g.Import();
-Console.WriteLine("Injected battle menu announcer (buttons/target/act/item/mercy + HP)");
+Console.WriteLine("Injected battle menu announcer (buttons/target/act/item/mercy + HP + describe key)");
 
 }
 
@@ -3135,6 +3999,7 @@ string menuDrive = @"
 string[] need = { "external_define","external_call","variable_global_exists",
                   "keyboard_check_pressed","ord","instance_exists","is_real","round","string",
                   "audio_sound_gain","ini_open","ini_close","ini_read_real","ini_write_real",
+                  "ini_read_string","ini_write_string",
                   "control_check_pressed" };
 foreach (var f in need) Data.Functions.EnsureDefined(f, Data.Strings);
 
@@ -3160,6 +4025,9 @@ string gml = @"
         global.nvda_opt_combat = ini_read_real(""options"", ""combat"", 1);
         global.nvda_mode       = ini_read_real(""options"", ""mode"",   0);
         global.nvda_musicvol   = ini_read_real(""options"", ""music"",  0.5);
+        global.nvda_seen_chars = ini_read_string(""descriptions"", ""seen"", ""|"");
+        global.nvda_cs_seen = ini_read_string(""descriptions"", ""cutscenes"", ""|"");
+        global.nvda_amb_seen = ini_read_string(""descriptions"", ""ambiance"", ""|"");
         ini_close();
         global.nvda_assist = (global.nvda_mode == 0);
         global.nvda_menu_open = 0;
@@ -3184,6 +4052,9 @@ string gml = @"
         ini_write_real(""options"", ""combat"", global.nvda_opt_combat);
         ini_write_real(""options"", ""mode"",   global.nvda_mode);
         ini_write_real(""options"", ""music"",  global.nvda_musicvol);
+        if (variable_global_exists(""nvda_seen_chars"")) ini_write_string(""descriptions"", ""seen"", global.nvda_seen_chars);
+        if (variable_global_exists(""nvda_cs_seen"")) ini_write_string(""descriptions"", ""cutscenes"", global.nvda_cs_seen);
+        if (variable_global_exists(""nvda_amb_seen"")) ini_write_string(""descriptions"", ""ambiance"", global.nvda_amb_seen);
         ini_close();
         global.nvda_opt_dirty = 0;
     }
@@ -3460,12 +4331,17 @@ Console.WriteLine("Injected accessibility options menu (K opens; 7 options; ini-
 // so it overrides the movement flags for the frame. Gated to overworld free-roam + scan option.
 {
     foreach (var f in new string[] { "external_call","variable_global_exists","instance_exists",
-             "keyboard_check","keyboard_check_pressed","ord","point_distance","abs","string","ceil",
+             "keyboard_check","keyboard_check_pressed","ord","point_distance","abs","ceil","round",
              "mp_grid_create","mp_grid_destroy","mp_grid_add_rectangle","mp_grid_path","mp_grid_clear_all",
-             "mp_grid_clear_rectangle","instance_number",
+             "mp_grid_clear_rectangle","collision_rectangle",
              "path_add","path_delete","path_get_number","path_get_point_x","path_get_point_y" })
         Data.Functions.EnsureDefined(f, Data.Strings);
 
+    // Follower rewrite (2026-07-08): reliability pass for in-room walking. Steering is now
+    // COLLISION-AWARE (predicts a 3px step against obj_solidparent walls and slides along them
+    // instead of grinding), the path SELF-HEALS (rebuilds A* from the current spot whenever the
+    // body stalls or runs off the end of the path), and a hard "no-gain" timer guarantees it
+    // always terminates. mp_grid A* keeps routing around walls/spikes/holes. In-room only.
     string aw = @"
 {
     if (!variable_global_exists(""nvda_walk_active""))
@@ -3474,11 +4350,13 @@ Console.WriteLine("Injected accessibility options menu (K opens; 7 options; ini-
         global.nvda_walk_grid = -1;
         global.nvda_walk_path = -1;
         global.nvda_walk_node = 0;
-        global.nvda_walk_stuck = 0;
+        global.nvda_walk_target = noone;
+        global.nvda_walk_needpath = 0;
         global.nvda_walk_px = 0;
         global.nvda_walk_py = 0;
-        global.nvda_walk_lastdir = """";
-        global.nvda_walk_skips = 0;
+        global.nvda_walk_noprog = 0;
+        global.nvda_walk_bestdist = 99999;
+        global.nvda_walk_nogain = 0;
     }
     if (!variable_global_exists(""nvda_ready""))
     {
@@ -3511,90 +4389,35 @@ Console.WriteLine("Injected accessibility options menu (K opens; 7 options; ini-
         {
             external_call(global.nvda_speak, ""No target selected. Press T to choose one."");
         }
+        else if (point_distance(obj_mainchara.x, obj_mainchara.y, global.nvda_sel.x, global.nvda_sel.y) < 14)
+        {
+            external_call(global.nvda_speak, ""You are already there."");
+        }
         else
         {
-            var _tg = global.nvda_sel;
-            var _sx = obj_mainchara.x; var _sy = obj_mainchara.y;
-            var _tx = _tg.x; var _ty = _tg.y;
-            if (point_distance(_sx, _sy, _tx, _ty) < 14)
-            {
-                external_call(global.nvda_speak, ""You are already there."");
-            }
-            else
-            {
-                var _cell = 20;
-                var _cols = ceil(room_width / _cell); var _rows = ceil(room_height / _cell);
-                if (global.nvda_walk_grid >= 0) mp_grid_destroy(global.nvda_walk_grid);
-                if (global.nvda_walk_path >= 0) path_delete(global.nvda_walk_path);
-                var _path = path_add();
-                var _grid = mp_grid_create(0, 0, _cols, _rows, _cell, _cell);
-                var _wallcount = 0;
-                with (obj_solidparent) _wallcount += 1;
-                // Pass 1: inflate walls by a small margin so the path keeps off them (the player
-                // has width; a path hugging a wall makes the body clip it). diagonal=0 -> the path
-                // is axis-aligned (down-then-left), matching the one-axis-at-a-time follower below.
-                // obstacles = walls (obj_solidparent) AND solid interactables (obj_solidnpcparent:
-                // signs/NPCs/save points/pickups) so the path avoids them, + spikes/holes. Then we
-                // CLEAR the destination's own cell + the start cell so mp_grid_path is allowed to
-                // route up TO the (solid) target and FROM a spot pressed against a wall.
-                var _m = 4;
-                with (obj_solidparent)     mp_grid_add_rectangle(_grid, bbox_left - _m, bbox_top - _m, bbox_right + _m, bbox_bottom + _m);
-                with (obj_solidnpcparent)  mp_grid_add_rectangle(_grid, bbox_left - _m, bbox_top - _m, bbox_right + _m, bbox_bottom + _m);
-                with (obj_spiketile1)      mp_grid_add_rectangle(_grid, bbox_left - _m, bbox_top - _m, bbox_right + _m, bbox_bottom + _m);
-                with (obj_spiketile2)      mp_grid_add_rectangle(_grid, bbox_left - _m, bbox_top - _m, bbox_right + _m, bbox_bottom + _m);
-                with (obj_spikes_room)     mp_grid_add_rectangle(_grid, bbox_left - _m, bbox_top - _m, bbox_right + _m, bbox_bottom + _m);
-                with (obj_holedown)        mp_grid_add_rectangle(_grid, bbox_left - _m, bbox_top - _m, bbox_right + _m, bbox_bottom + _m);
-                with (obj_superdrophole)   mp_grid_add_rectangle(_grid, bbox_left - _m, bbox_top - _m, bbox_right + _m, bbox_bottom + _m);
-                mp_grid_clear_rectangle(_grid, _tg.bbox_left - 22, _tg.bbox_top - 22, _tg.bbox_right + 22, _tg.bbox_bottom + 22);
-                mp_grid_clear_rectangle(_grid, _sx - 14, _sy - 14, _sx + 14, _sy + 14);
-                var _found = mp_grid_path(_grid, _path, _sx, _sy, _tx, _ty, 0);
-                if (!_found)
-                {
-                    // Pass 2: no margin (handles tight corridors + starting pressed against a wall).
-                    mp_grid_clear_all(_grid);
-                    with (obj_solidparent)     mp_grid_add_rectangle(_grid, bbox_left, bbox_top, bbox_right, bbox_bottom);
-                    with (obj_solidnpcparent)  mp_grid_add_rectangle(_grid, bbox_left, bbox_top, bbox_right, bbox_bottom);
-                    with (obj_spiketile1)      mp_grid_add_rectangle(_grid, bbox_left, bbox_top, bbox_right, bbox_bottom);
-                    with (obj_spiketile2)      mp_grid_add_rectangle(_grid, bbox_left, bbox_top, bbox_right, bbox_bottom);
-                    with (obj_spikes_room)     mp_grid_add_rectangle(_grid, bbox_left, bbox_top, bbox_right, bbox_bottom);
-                    with (obj_holedown)        mp_grid_add_rectangle(_grid, bbox_left, bbox_top, bbox_right, bbox_bottom);
-                    with (obj_superdrophole)   mp_grid_add_rectangle(_grid, bbox_left, bbox_top, bbox_right, bbox_bottom);
-                    mp_grid_clear_rectangle(_grid, _tg.bbox_left - 22, _tg.bbox_top - 22, _tg.bbox_right + 22, _tg.bbox_bottom + 22);
-                    mp_grid_clear_rectangle(_grid, _sx - 14, _sy - 14, _sx + 14, _sy + 14);
-                    _found = mp_grid_path(_grid, _path, _sx, _sy, _tx, _ty, 0);
-                }
-                if (_found)
-                {
-                    global.nvda_walk_grid = _grid;
-                    global.nvda_walk_path = _path;
-                    global.nvda_walk_active = 1;
-                    global.nvda_walk_node = 0;
-                    global.nvda_walk_stuck = 0;
-                    global.nvda_walk_px = _sx; global.nvda_walk_py = _sy;
-                    global.nvda_walk_lastdir = """";
-                    global.nvda_walk_skips = 0;
-                    external_call(global.nvda_speak, ""Walking."");
-                }
-                else
-                {
-                    mp_grid_destroy(_grid);
-                    path_delete(_path);
-                    global.nvda_walk_grid = -1; global.nvda_walk_path = -1;
-                    external_call(global.nvda_speak, ""No path found."");
-                }
-            }
+            global.nvda_walk_target = global.nvda_sel;
+            global.nvda_walk_active = 1;
+            global.nvda_walk_needpath = 1;
+            global.nvda_walk_node = 0;
+            global.nvda_walk_noprog = 0;
+            global.nvda_walk_bestdist = 99999;
+            global.nvda_walk_nogain = 0;
+            global.nvda_walk_px = obj_mainchara.x; global.nvda_walk_py = obj_mainchara.y;
+            external_call(global.nvda_speak, ""Walking."");
         }
     }
 
-    // ---- active: steer toward the next path node each frame ----
+    // ---- active: (re)build the path as needed, then steer with a collision-aware axis choice ----
     if (global.nvda_walk_active == 1)
     {
-        if (!_aw_ok)
+        var _tg = global.nvda_walk_target;
+        if (!_aw_ok || _tg == noone || !instance_exists(_tg))
         {
             if (global.nvda_walk_grid >= 0) mp_grid_destroy(global.nvda_walk_grid);
             if (global.nvda_walk_path >= 0) path_delete(global.nvda_walk_path);
             global.nvda_walk_grid = -1; global.nvda_walk_path = -1;
             global.nvda_walk_active = 0; global.nvda_walk_node = 0;
+            up = 0; down = 0; left = 0; right = 0;
         }
         else if (_manual)
         {
@@ -3606,33 +4429,23 @@ Console.WriteLine("Injected accessibility options menu (K opens; 7 options; ini-
         }
         else
         {
-            var _p = global.nvda_walk_path;
-            var _mcx = obj_mainchara.x; var _mcy = obj_mainchara.y;
-            var _total = path_get_number(_p);
-            var _n = global.nvda_walk_node;
-            var _arrived = 0;
+            // Work in COLLISION-BOX CENTRE space, not the sprite origin. The origin sits ~24px above
+            // the body centre, so an origin-based path demands positions the body can never reach and
+            // deadlocks at corners (proven by the walk log). Pathing + following the centre, and
+            // inflating walls by the body half-size, makes every planned path actually walkable.
+            var _hw = (obj_mainchara.bbox_right - obj_mainchara.bbox_left) / 2;
+            var _hh = (obj_mainchara.bbox_bottom - obj_mainchara.bbox_top) / 2;
+            var _mcx = (obj_mainchara.bbox_left + obj_mainchara.bbox_right) / 2;
+            var _mcy = (obj_mainchara.bbox_top + obj_mainchara.bbox_bottom) / 2;
+            var _tgx = (_tg.bbox_left + _tg.bbox_right) / 2;
+            var _tgy = (_tg.bbox_top + _tg.bbox_bottom) / 2;
+            var _distT = point_distance(_mcx, _mcy, _tgx, _tgy);
 
-            // reached the current node? advance.
-            if (_n < _total)
-            {
-                var _nx = path_get_point_x(_p, _n);
-                var _ny = path_get_point_y(_p, _n);
-                if (point_distance(_mcx, _mcy, _nx, _ny) < 14)
-                {
-                    global.nvda_walk_node += 1;
-                    _n = global.nvda_walk_node;
-                    global.nvda_walk_skips = 0;
-                }
-            }
+            // no-gain backstop: if we haven't got meaningfully closer in ~5s, give up cleanly.
+            if (_distT < (global.nvda_walk_bestdist - 1)) { global.nvda_walk_bestdist = _distT; global.nvda_walk_nogain = 0; }
+            else global.nvda_walk_nogain += 1;
 
-            // target proximity = arrived (handles the final node + slight overshoot)
-            var _distT = 99999;
-            if (variable_global_exists(""nvda_sel"") && global.nvda_sel != noone && instance_exists(global.nvda_sel))
-                _distT = point_distance(_mcx, _mcy, global.nvda_sel.x, global.nvda_sel.y);
-            if (_distT < 12) _arrived = 1;
-            if (_n >= _total) _arrived = 1;
-
-            if (_arrived == 1)
+            if (_distT < (_hw + _hh + 6))
             {
                 if (global.nvda_walk_grid >= 0) mp_grid_destroy(global.nvda_walk_grid);
                 if (global.nvda_walk_path >= 0) path_delete(global.nvda_walk_path);
@@ -3641,65 +4454,167 @@ Console.WriteLine("Injected accessibility options menu (K opens; 7 options; ini-
                 up = 0; down = 0; left = 0; right = 0;
                 external_call(global.nvda_speak, ""Arrived."");
             }
+            else if (global.nvda_walk_nogain > 150)
+            {
+                if (global.nvda_walk_grid >= 0) mp_grid_destroy(global.nvda_walk_grid);
+                if (global.nvda_walk_path >= 0) path_delete(global.nvda_walk_path);
+                global.nvda_walk_grid = -1; global.nvda_walk_path = -1;
+                global.nvda_walk_active = 0; global.nvda_walk_node = 0;
+                up = 0; down = 0; left = 0; right = 0;
+                if (_distT < (_hw + _hh + 12)) external_call(global.nvda_speak, ""Arrived."");
+                else external_call(global.nvda_speak, ""Path blocked. Stopping."");
+            }
             else
             {
-                var _nx2 = path_get_point_x(_p, _n);
-                var _ny2 = path_get_point_y(_p, _n);
-                var _ddx = _nx2 - _mcx;
-                var _ddy = _ny2 - _mcy;
-                // ONE axis at a time (never diagonal) so a corner step can't clip a wall and get
-                // both x and y reverted by the game's collision. Close the bigger gap first; once
-                // that axis is aligned, move the other. = clean down-then-left corridor following.
-                up = 0; down = 0; left = 0; right = 0;
-                if (abs(_ddx) >= abs(_ddy))
+                // (re)build the grid + A* path FROM THE CURRENT POSITION to the target.
+                if (global.nvda_walk_needpath == 1)
                 {
-                    if (_ddx > 2) right = 1;
-                    else if (_ddx < -2) left = 1;
-                    else if (_ddy > 2) down = 1;
-                    else if (_ddy < -2) up = 1;
-                }
-                else
-                {
-                    if (_ddy > 2) down = 1;
-                    else if (_ddy < -2) up = 1;
-                    else if (_ddx > 2) right = 1;
-                    else if (_ddx < -2) left = 1;
-                }
-
-                // If the body can't reach a cell-center waypoint (a wall is in the way), SKIP to
-                // the next waypoint instead of grinding into the wall -> this flows it around
-                // corners. Only truly give up after many skips in a row (genuinely boxed in).
-                if (abs(_mcx - global.nvda_walk_px) < 1 && abs(_mcy - global.nvda_walk_py) < 1)
-                    global.nvda_walk_stuck += 1;
-                else
-                    global.nvda_walk_stuck = 0;
-                global.nvda_walk_px = _mcx; global.nvda_walk_py = _mcy;
-                if (global.nvda_walk_stuck > 6)
-                {
-                    if (_distT < 30)
+                    var _cell = 10;
+                    var _cols = ceil(room_width / _cell); var _rows = ceil(room_height / _cell);
+                    var _npath = path_add();
+                    var _ngrid = mp_grid_create(0, 0, _cols, _rows, _cell, _cell);
+                    // Inflate walls by (almost) the body half-size so a CENTRE-point path keeps the
+                    // whole body clear of walls. Pass 2 drops the inflation for genuinely tight spots.
+                    var _ix = _hw - 2; var _iy = _hh - 2;
+                    with (obj_solidparent)     mp_grid_add_rectangle(_ngrid, bbox_left - _ix, bbox_top - _iy, bbox_right + _ix, bbox_bottom + _iy);
+                    with (obj_solidnpcparent)  mp_grid_add_rectangle(_ngrid, bbox_left - _ix, bbox_top - _iy, bbox_right + _ix, bbox_bottom + _iy);
+                    with (obj_spiketile1)      mp_grid_add_rectangle(_ngrid, bbox_left - _ix, bbox_top - _iy, bbox_right + _ix, bbox_bottom + _iy);
+                    with (obj_spiketile2)      mp_grid_add_rectangle(_ngrid, bbox_left - _ix, bbox_top - _iy, bbox_right + _ix, bbox_bottom + _iy);
+                    with (obj_spikes_room)     mp_grid_add_rectangle(_ngrid, bbox_left - _ix, bbox_top - _iy, bbox_right + _ix, bbox_bottom + _iy);
+                    with (obj_holedown)        mp_grid_add_rectangle(_ngrid, bbox_left - _ix, bbox_top - _iy, bbox_right + _ix, bbox_bottom + _iy);
+                    with (obj_superdrophole)   mp_grid_add_rectangle(_ngrid, bbox_left - _ix, bbox_top - _iy, bbox_right + _ix, bbox_bottom + _iy);
+                    mp_grid_clear_rectangle(_ngrid, _tg.bbox_left - _hw - 2, _tg.bbox_top - _hh - 2, _tg.bbox_right + _hw + 2, _tg.bbox_bottom + _hh + 2);
+                    mp_grid_clear_rectangle(_ngrid, _mcx - _hw - 2, _mcy - _hh - 2, _mcx + _hw + 2, _mcy + _hh + 2);
+                    var _found = mp_grid_path(_ngrid, _npath, _mcx, _mcy, _tgx, _tgy, 0);
+                    if (!_found)
                     {
-                        // adjacent to a solid target = arrived (can't stand inside a sign/NPC)
+                        mp_grid_clear_all(_ngrid);
+                        with (obj_solidparent)     mp_grid_add_rectangle(_ngrid, bbox_left, bbox_top, bbox_right, bbox_bottom);
+                        with (obj_solidnpcparent)  mp_grid_add_rectangle(_ngrid, bbox_left, bbox_top, bbox_right, bbox_bottom);
+                        with (obj_spiketile1)      mp_grid_add_rectangle(_ngrid, bbox_left, bbox_top, bbox_right, bbox_bottom);
+                        with (obj_spiketile2)      mp_grid_add_rectangle(_ngrid, bbox_left, bbox_top, bbox_right, bbox_bottom);
+                        with (obj_spikes_room)     mp_grid_add_rectangle(_ngrid, bbox_left, bbox_top, bbox_right, bbox_bottom);
+                        with (obj_holedown)        mp_grid_add_rectangle(_ngrid, bbox_left, bbox_top, bbox_right, bbox_bottom);
+                        with (obj_superdrophole)   mp_grid_add_rectangle(_ngrid, bbox_left, bbox_top, bbox_right, bbox_bottom);
+                        mp_grid_clear_rectangle(_ngrid, _tg.bbox_left - _hw - 2, _tg.bbox_top - _hh - 2, _tg.bbox_right + _hw + 2, _tg.bbox_bottom + _hh + 2);
+                        mp_grid_clear_rectangle(_ngrid, _mcx - _hw - 2, _mcy - _hh - 2, _mcx + _hw + 2, _mcy + _hh + 2);
+                        _found = mp_grid_path(_ngrid, _npath, _mcx, _mcy, _tgx, _tgy, 0);
+                    }
+                    if (_found)
+                    {
                         if (global.nvda_walk_grid >= 0) mp_grid_destroy(global.nvda_walk_grid);
                         if (global.nvda_walk_path >= 0) path_delete(global.nvda_walk_path);
-                        global.nvda_walk_grid = -1; global.nvda_walk_path = -1;
-                        global.nvda_walk_active = 0; global.nvda_walk_node = 0;
-                        up = 0; down = 0; left = 0; right = 0;
-                        external_call(global.nvda_speak, ""Arrived."");
+                        global.nvda_walk_grid = _ngrid;
+                        global.nvda_walk_path = _npath;
+                        global.nvda_walk_node = 0;
+                        global.nvda_walk_needpath = 0;
                     }
                     else
                     {
-                        global.nvda_walk_stuck = 0;
-                        global.nvda_walk_node += 1;          // skip the unreachable waypoint
-                        global.nvda_walk_skips += 1;
-                        if (global.nvda_walk_node >= _total || global.nvda_walk_skips > 16)
+                        mp_grid_destroy(_ngrid);
+                        path_delete(_npath);
+                        if (global.nvda_walk_path < 0)
                         {
-                            if (global.nvda_walk_grid >= 0) mp_grid_destroy(global.nvda_walk_grid);
-                            if (global.nvda_walk_path >= 0) path_delete(global.nvda_walk_path);
-                            global.nvda_walk_grid = -1; global.nvda_walk_path = -1;
+                            // never had any path = unreachable from the very start.
                             global.nvda_walk_active = 0; global.nvda_walk_node = 0;
                             up = 0; down = 0; left = 0; right = 0;
-                            if (_distT < 40) external_call(global.nvda_speak, ""Arrived."");
-                            else external_call(global.nvda_speak, ""Path blocked. Stopping."");
+                            external_call(global.nvda_speak, ""No path found."");
+                        }
+                        else
+                        {
+                            // keep following the last good path; the no-gain timer is the backstop.
+                            global.nvda_walk_needpath = 0;
+                        }
+                    }
+                }
+
+                // steer along the current path
+                if (global.nvda_walk_active == 1 && global.nvda_walk_path >= 0)
+                {
+                    var _p = global.nvda_walk_path;
+                    var _total = path_get_number(_p);
+                    var _n = global.nvda_walk_node;
+                    var _guard = 0;
+                    while (_n < _total && _guard < 400 && point_distance(_mcx, _mcy, path_get_point_x(_p, _n), path_get_point_y(_p, _n)) < 8)
+                    {
+                        _n += 1; _guard += 1;
+                    }
+                    global.nvda_walk_node = _n;
+                    if (_n >= _total)
+                    {
+                        // ran out of path but not at the target -> reroute next frame.
+                        global.nvda_walk_needpath = 1;
+                        up = 0; down = 0; left = 0; right = 0;
+                    }
+                    else
+                    {
+                        var _nx = path_get_point_x(_p, _n);
+                        var _ny = path_get_point_y(_p, _n);
+                        var _ddx = _nx - _mcx;
+                        var _ddy = _ny - _mcy;
+                        var _hx = 0; var _vy = 0;
+                        if (_ddx > 2) _hx = 3; else if (_ddx < -2) _hx = -3;
+                        if (_ddy > 2) _vy = 3; else if (_ddy < -2) _vy = -3;
+                        // Predict each candidate step against walls. obj_solidparent reverts BOTH axes on
+                        // contact, so: only command an axis whose 3px step is clear, and only command
+                        // BOTH (a diagonal) when the diagonal destination is also clear. This heads
+                        // straight at the waypoint and SLIDES along a wall when one axis is blocked,
+                        // instead of grinding to a halt or veering off the route.
+                        var _bl = obj_mainchara.bbox_left; var _bt = obj_mainchara.bbox_top;
+                        var _br = obj_mainchara.bbox_right; var _bb = obj_mainchara.bbox_bottom;
+                        // A step is clear only if it hits NEITHER walls (obj_solidparent) NOR solid
+                        // interactables (obj_solidnpcparent: desks/signs/NPCs/save points) - the game
+                        // blocks on both (obj_mainchara Collision_1367 + _822), so the follower must too.
+                        var _canh = (_hx != 0
+                            && collision_rectangle(_bl + _hx, _bt, _br + _hx, _bb, obj_solidparent, false, true) == noone
+                            && collision_rectangle(_bl + _hx, _bt, _br + _hx, _bb, obj_solidnpcparent, false, true) == noone);
+                        var _canv = (_vy != 0
+                            && collision_rectangle(_bl, _bt + _vy, _br, _bb + _vy, obj_solidparent, false, true) == noone
+                            && collision_rectangle(_bl, _bt + _vy, _br, _bb + _vy, obj_solidnpcparent, false, true) == noone);
+                        var _cand = (_hx != 0 && _vy != 0
+                            && collision_rectangle(_bl + _hx, _bt + _vy, _br + _hx, _bb + _vy, obj_solidparent, false, true) == noone
+                            && collision_rectangle(_bl + _hx, _bt + _vy, _br + _hx, _bb + _vy, obj_solidnpcparent, false, true) == noone);
+                        up = 0; down = 0; left = 0; right = 0;
+                        var _go = 0;   // 0 = fully blocked; 1 = moved at least one axis this frame
+                        if (_canh && _canv && _cand)
+                        {
+                            if (_hx > 0) right = 1; else left = 1;
+                            if (_vy > 0) down = 1; else up = 1;
+                            _go = 1;
+                        }
+                        else if (abs(_ddx) >= abs(_ddy))
+                        {
+                            if (_canh) { if (_hx > 0) right = 1; else left = 1; _go = 1; }
+                            else if (_canv) { if (_vy > 0) down = 1; else up = 1; _go = 1; }
+                        }
+                        else
+                        {
+                            if (_canv) { if (_vy > 0) down = 1; else up = 1; _go = 1; }
+                            else if (_canh) { if (_hx > 0) right = 1; else left = 1; _go = 1; }
+                        }
+
+                        // stall detection -> reroute (or, if we're right next to a solid target, arrive).
+                        if (abs(_mcx - global.nvda_walk_px) < 1 && abs(_mcy - global.nvda_walk_py) < 1)
+                            global.nvda_walk_noprog += 1;
+                        else
+                            global.nvda_walk_noprog = 0;
+                        global.nvda_walk_px = _mcx; global.nvda_walk_py = _mcy;
+                        if (_go == 0 || global.nvda_walk_noprog > 8)
+                        {
+                            if (_distT < (_hw + _hh + 10))
+                            {
+                                if (global.nvda_walk_grid >= 0) mp_grid_destroy(global.nvda_walk_grid);
+                                if (global.nvda_walk_path >= 0) path_delete(global.nvda_walk_path);
+                                global.nvda_walk_grid = -1; global.nvda_walk_path = -1;
+                                global.nvda_walk_active = 0; global.nvda_walk_node = 0;
+                                up = 0; down = 0; left = 0; right = 0;
+                                external_call(global.nvda_speak, ""Arrived."");
+                            }
+                            else
+                            {
+                                global.nvda_walk_needpath = 1;
+                                global.nvda_walk_noprog = 0;
+                            }
                         }
                     }
                 }
