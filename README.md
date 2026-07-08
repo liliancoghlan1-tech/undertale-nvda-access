@@ -9,6 +9,8 @@ start to finish, including the hardest fights.
 
 ---
 
+please note due to this Games status as a bullet hell title, direct adaptation of the combat was impossible. Following the directional beeps with your arrow keys will teleport  your soul to safe places on the board. While not the exact same, it should still provide an engaging and challenging experience. 
+
 ## ⬇️ Download & Install
 
 1. Get the latest **`Undertale-NVDA-Access.zip`** from the
