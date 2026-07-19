@@ -79,6 +79,18 @@ a monster describe key (**D**) in battle — plus the speaker's name before each
 
 This is a fan project — it will have rough edges, and feedback is very welcome.
 
+## support me. 
+
+ I will never lock a mod behind a paywall, but the tools I use to create them don't come cheap. any support means the absolute world and is a massive help in the creation of new mods like this one. 
+
+patreon
+
+https://www.patreon.com/Lily4080?utm_campaign=creatorshare_creator
+
+buy me a Coffee 
+
+ https://buymeacoffee.com/liliancogha 
+
 ## How it works (for the curious)
 
 The mod patches Undertale's `data.win` with [UndertaleModTool](https://github.com/UnderminersTeam/UndertaleModTool),
