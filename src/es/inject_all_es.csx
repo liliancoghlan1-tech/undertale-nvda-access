@@ -1,5 +1,28 @@
 // Undertale NVDA accessibility - ALL injections in ONE pass (generated from the 17 proven inject_*.csx, build.sh order). Each wrapped in its own scope to isolate locals.
 
+// ===== SHARED HELPER: context HINTS (top-level so every injection block below can use it) =====
+// PROBLEM THIS FIXES (player report, 2026-07-20): the old instructional hints ("Blue soul. Press up
+// to jump...", "Shield. Block each spear...", "Attack. Press Z at the highest beep.") kept their
+// "already said this" flag on the battle object that hosts them -- obj_spearblocker, obj_targetchoice
+// and obj_heart are DESTROYED and RECREATED for every attack wave, so the flag reset every wave and
+// the mod re-read a 20-to-40-word sentence at the start of each one. A real player reported the
+// speech ran over the timing beeps it was describing and was getting him hit.
+//
+// New rule: a hint is spoken ONCE PER SAVE (persisted in global.nvda_hint_seen, ini section
+// "descriptions" key "hints", cleared on New Game alongside the other seen-sets), and is ALWAYS
+// recorded in global.nvda_hint so the H key can repeat the CURRENT context's hint on demand. Same
+// "once + repeatable on demand" shape Lilian chose for the room ambiance descriptions (AmbBeat).
+// The first time a hint is heard it also tells the player that H repeats it.
+string HintGml(string key, string text) =>
+  "{ if (!variable_global_exists(\"nvda_hint_seen\")) global.nvda_hint_seen = \"|\";\n" +
+  "  if (!variable_global_exists(\"nvda_hintkey\")) { global.nvda_hintkey = \"\"; global.nvda_hint = \"\"; }\n" +
+  "  global.nvda_hint = \"" + text + "\";\n" +
+  "  if (global.nvda_hintkey != \"" + key + "\")\n" +
+  "  { global.nvda_hintkey = \"" + key + "\";\n" +
+  "    if (string_pos(\"|" + key + "|\", global.nvda_hint_seen) == 0)\n" +
+  "    { global.nvda_hint_seen += \"" + key + "|\"; global.nvda_opt_dirty = 1;\n" +
+  "      external_call(global.nvda_speak, \"" + text + " Press H to hear this hint again.\"); } } }\n";
+
 // ===== inject_nvda.csx =====
 {
 // Undertale accessibility - M1: speak dialogue lines via NVDA.
@@ -201,6 +224,11 @@ Data.Functions.EnsureDefined("string_pos", Data.Strings);
 Data.Functions.EnsureDefined("instance_exists", Data.Strings);
 Data.Functions.EnsureDefined("keyboard_check_pressed", Data.Strings);
 Data.Functions.EnsureDefined("ord", Data.Strings);
+// U-key "ways out" lister
+Data.Functions.EnsureDefined("point_distance", Data.Strings);
+Data.Functions.EnsureDefined("abs", Data.Strings);
+Data.Functions.EnsureDefined("round", Data.Strings);
+Data.Functions.EnsureDefined("string", Data.Strings);
 // Diagnostic cutscene-logger builtins (silent recon tool, see the detector block below).
 Data.Functions.EnsureDefined("file_text_open_append", Data.Strings);
 Data.Functions.EnsureDefined("file_text_write_string", Data.Strings);
@@ -502,7 +530,7 @@ beats += AmbBeat("amb_water3a", "room == room_water3A",
 beats += AmbBeat("amb_water4", "room == room_water4",
     "Un espeso matorral de hierba alta crece en el centro de esta sala, lo bastante alto como para esconderse en él. En un saliente muy por encima, una alta figura con armadura observa, completamente inmóvil. Al otro lado brilla un punto de guardado.");
 beats += AmbBeat("amb_water_bridgepuzz1", "room == room_water_bridgepuzz1",
-    "Un puzle de semillas-puente. Racimos de semillas flotan en el agua; camina hacia ellas para juntarlas, y allí donde se agrupan brotan puentes sólidos de nenúfares que puedes cruzar. Un cartel cercano lo explica.");
+    "Un puzle de semillas puente. Grupos de semillas van a la deriva por el agua y brotan formando puentes de nenúfares allí donde se juntan, pero alinearlas a simple vista no es práctico sin visión, así que es mejor saltarse este. Para saltarlo: pulsa P para oír las salidas, pulsa P otra vez para pasar de una a otra y luego pulsa O para cruzar.");
 beats += AmbBeat("amb_water5", "room == room_water5",
     "Un tramo de agua más grande sembrado de semillas-puente a la deriva. Junta las semillas para hacer crecer puentes de nenúfares sobre el agua. Hongos luminosos y una flor con forma de campana iluminan la sala, y un cartel ofrece una pista.");
 beats += AmbBeat("amb_water5a", "room == room_water5A",
@@ -663,7 +691,7 @@ beats += AmbBeat("amb_fire_apron", "room == room_fire_apron",
 beats += AmbBeat("amb_fire10", "room == room_fire10",
     "Una sala de cintas transportadoras con una fila de tres interruptores que hay que colocar en el patrón correcto antes de que se abra el paso.");
 beats += AmbBeat("amb_fire_rpuzzle", "room == room_fire_rpuzzle",
-    "Un puzle de respiraderos de vapor y cintas transportadoras. Rebota entre los chorros y súbete a las cintas para mover los bloques y cruzar.");
+    "Un puzle de chorros de vapor y cintas transportadoras. Las plataformas de rebote y las cintas te mueven automáticamente, así que este es un puzle visual que conviene saltarse. Para saltarlo: pulsa P para oír las salidas, pulsa P otra vez para pasar de una a otra y luego pulsa O para cruzar. El camino a seguir es la puerta del este.");
 beats += AmbBeat("amb_fire_mewmew2", "room == room_fire_mewmew2",
     "Una sala calurosa con un punto de guardado y una pequeña ratonera desgastada en la pared.");
 beats += AmbBeat("amb_fire_boysnightout", "room == room_fire_boysnightout",
@@ -853,6 +881,89 @@ string gml = @"
         if (global.nvda_roomdesc != """") external_call(global.nvda_speak, global.nvda_roomdesc);
         else external_call(global.nvda_speak, ""No hay descripción para esta zona."");
     }
+    // H key: repeat the CURRENT context's instructional hint on demand. Hints now speak themselves
+    // only once per save (see HintGml at the top of this script), so this is how a player re-hears
+    // ""how do I do this again?"" without the mod reciting it over every attack wave.
+    if (keyboard_check_pressed(ord(""H"")))
+    {
+        if (variable_global_exists(""nvda_hint"") && global.nvda_hint != """")
+            external_call(global.nvda_speak, global.nvda_hint);
+        else external_call(global.nvda_speak, ""No hay ninguna ayuda para lo que estás haciendo ahora mismo."");
+    }
+    // U key: cycle the room's EXITS ONLY, nearest first, and select the one you land on so V
+    // walks to it. The general T scanner already lists doors, but it lists them mixed in with
+    // every sign, switch, NPC and item in the room - a player reported being stuck in three
+    // separate places (""no clue how to get to the next room"", ""not really a way to know how to
+    // go to any of the doors"") because the way out was buried in that list. This is the
+    // dedicated ""where are the ways out of here"" key.
+    if (instance_exists(obj_mainchara) && keyboard_check_pressed(ord(""U"")))
+    {
+        var _px = obj_mainchara.x; var _py = obj_mainchara.y;
+        global.nvda_nex = 0;
+        with (obj_doorparent)
+        {
+            // Same exclusion the T scanner uses: the ice-slide trigger tiles are doorparent
+            // children and a slide room holds 100+ of them, which would flood this list.
+            if (object_index != obj_iceevent && object_index != obj_iceeventup && object_index != obj_iceeventright)
+            {
+                var _dup = 0; var _q = 0;
+                for (_q = 0; _q < global.nvda_nex; _q += 1)
+                {
+                    if (point_distance(x, y, global.nvda_exx[_q], global.nvda_exy[_q]) < 48) { _dup = 1; break; }
+                }
+                if (_dup == 0 && global.nvda_nex < 16)
+                {
+                    global.nvda_exx[global.nvda_nex] = x;
+                    global.nvda_exy[global.nvda_nex] = y;
+                    global.nvda_exid[global.nvda_nex] = id;
+                    global.nvda_nex += 1;
+                }
+            }
+        }
+        if (global.nvda_nex == 0)
+        {
+            external_call(global.nvda_speak, ""No se ha encontrado ninguna salida en esta sala."");
+        }
+        else
+        {
+            // nearest first
+            var _i = 0; var _j = 0;
+            for (_i = 0; _i < global.nvda_nex - 1; _i += 1)
+            {
+                var _mn = _i;
+                for (_j = _i + 1; _j < global.nvda_nex; _j += 1)
+                {
+                    if (point_distance(_px, _py, global.nvda_exx[_j], global.nvda_exy[_j])
+                      < point_distance(_px, _py, global.nvda_exx[_mn], global.nvda_exy[_mn])) _mn = _j;
+                }
+                if (_mn != _i)
+                {
+                    var _tx = global.nvda_exx[_i]; var _ty = global.nvda_exy[_i]; var _ti = global.nvda_exid[_i];
+                    global.nvda_exx[_i] = global.nvda_exx[_mn]; global.nvda_exy[_i] = global.nvda_exy[_mn]; global.nvda_exid[_i] = global.nvda_exid[_mn];
+                    global.nvda_exx[_mn] = _tx; global.nvda_exy[_mn] = _ty; global.nvda_exid[_mn] = _ti;
+                }
+            }
+            if (!variable_global_exists(""nvda_exidx"")) global.nvda_exidx = -1;
+            if (global.nvda_roomchg) global.nvda_exidx = -1;
+            global.nvda_exidx += 1;
+            if (global.nvda_exidx >= global.nvda_nex) global.nvda_exidx = 0;
+            var _k = global.nvda_exidx;
+            var _dx = global.nvda_exx[_k] - _px;
+            var _dy = global.nvda_exy[_k] - _py;
+            var _dir = """";
+            if (abs(_dy) > (abs(_dx) * 2)) { if (_dy < 0) _dir = ""norte""; else _dir = ""sur""; }
+            else if (abs(_dx) > (abs(_dy) * 2)) { if (_dx < 0) _dir = ""oeste""; else _dir = ""este""; }
+            else
+            {
+                if (_dy < 0) _dir = ""norte""; else _dir = ""sur"";
+                if (_dx < 0) _dir += ""oeste""; else _dir += ""este"";
+            }
+            var _pace = round(point_distance(_px, _py, global.nvda_exx[_k], global.nvda_exy[_k]) / 10);
+            global.nvda_sel = global.nvda_exid[_k];
+            external_call(global.nvda_speak, ""Salida "" + string(_k + 1) + "" de "" + string(global.nvda_nex)
+                + "", "" + _dir + "", "" + string(_pace) + "" pasos. Pulsa V para ir hasta allí, o U para la siguiente."");
+        }
+    }
 }
 ";
 
@@ -907,6 +1018,8 @@ string gml = @"
         global.nvda_cs_seen = ""|"";
     if ((naming == 1 || naming == 2) && variable_global_exists(""nvda_amb_seen"") && global.nvda_amb_seen != ""|"")
         global.nvda_amb_seen = ""|"";
+    if ((naming == 1 || naming == 2) && variable_global_exists(""nvda_hint_seen"") && global.nvda_hint_seen != ""|"")
+        global.nvda_hint_seen = ""|"";
     var _say = """";
     if (naming != nvda_last_naming)
     {
@@ -1200,6 +1313,7 @@ string tag = @"
     with (obj_holeup2) nvda_kind = ""Salida hacia arriba"";
     with (obj_xoxo) { if (image_index == 0) nvda_kind = ""X, písala""; else if (image_index == 1) nvda_kind = ""O, hecho, evita""; else nvda_kind = ""casilla O""; }
     with (obj_xoxocontroller1) nvda_kind = ""Interruptor, pulsa cuando todos estén en O"";
+    with (obj_mettnews_artifact) { if (gtfo == 0) nvda_kind = ""Bomba, ven aquí para desactivarla""; }
     with (obj_doorparent) nvda_kind = ""Salida"";";
 
 // Build global.nvda_list[] sorted by distance to the player (selection sort; rooms are small).
@@ -1224,6 +1338,7 @@ string buildList = @"
     with (obj_holeup2) ds_list_add(_list, id);
     with (obj_xoxo) ds_list_add(_list, id);
     with (obj_xoxocontroller1) ds_list_add(_list, id);
+    with (obj_mettnews_artifact) { if (gtfo == 0) ds_list_add(_list, id); }
     // DEDUPE: a single door/sign is often several adjacent instances of the same object. Drop any
     // instance that shares its object_index with an earlier-kept one within 48px (= same logical
     // thing) so one wide door / multi-tile sign shows up ONCE instead of 4 times.
@@ -1283,7 +1398,7 @@ string announce = @"
     if (string_length(_nm) > 4 && string_copy(_nm, 1, 4) == ""obj_"") _nm = string_copy(_nm, 5, string_length(_nm) - 4);
     _nm = string_replace_all(_nm, ""_"", "" "");
     var _state = """";
-    if (_kind == ""Interruptor"" && variable_instance_exists(_sel, ""activado"")) { if (_sel.on) _state = "", on""; else _state = "", off""; }
+    if (_kind == ""Interruptor"" && variable_instance_exists(_sel, ""activado"")) { if (_sel.on) _state = "", activado""; else _state = "", desactivado""; }
     var _out = _kind + "", "" + _nm + _state;
     if (_dir == ""aquí"") _out += "", aquí""; else _out += "", "" + _dir + "", "" + string(_steps) + "" pasos"";";
 
@@ -1762,7 +1877,7 @@ Console.WriteLine("Injected battle menu announcer (buttons/target/act/item/mercy
 // snd_play uses audio_play_sound, so native audio_play_sound/audio_sound_pitch work here.
 
 string[] need = { "external_define","external_call","variable_global_exists","variable_instance_exists",
-                  "string","abs","round","instance_exists","audio_play_sound","audio_sound_pitch" };
+                  "string","abs","round","instance_exists","audio_play_sound","audio_sound_pitch","string_pos" };
 foreach (var f in need) Data.Functions.EnsureDefined(f, Data.Strings);
 
 string bridge = @"
@@ -1780,7 +1895,7 @@ string createGml = @"
     hspeed *= 0.5;
     nvda_beeptimer = 0;
     nvda_announced = 0;
-    external_call(global.nvda_speak, ""Ataca. Pulsa Z en el pitido más agudo."");
+" + HintGml("attackbar", "Attack. A tone slides across; press Z when it reaches its highest pitch. Note this is the attack bar only - during dodging, pitch means something completely different, it tells you how high or low the safe spot is.") + @"
 }";
 
 string stepGml = @"
@@ -1888,7 +2003,8 @@ Console.WriteLine("Injected gold/space HUD announcer (obj_golddisplay Draw, one-
 
 foreach (var fn in new[]{
     "external_define","external_call","variable_global_exists","variable_instance_exists",
-    "keyboard_check_pressed","keyboard_check","ord","max","round","string","instance_destroy","instance_exists"
+    "keyboard_check_pressed","keyboard_check","ord","max","round","string","instance_destroy","instance_exists",
+    "abs","string_pos"
 }) Data.Functions.EnsureDefined(fn, Data.Strings);
 
 // NVDA speech bridge (used by M toggle + Q locator)
@@ -1999,26 +2115,117 @@ string[] bulletObjs = {
     "obj_croissant", "obj_vertcroissant", "obj_spiderbullet",
     // Undyne in-battle red-soul spears (follow = home-then-dash; rise = 3 columns):
     "obj_spearbullet_follow", "obj_risespearbullet", "obj_followspear_2",
-    "obj_rotspear", "obj_undynespear"
+    "obj_rotspear", "obj_undynespear",
+    // ---- COVERAGE GAPS CLOSED 2026-07-20 (player report: "sounds play at the center", "beeps
+    // came only on the right", whole fights silent). Every object below defines its own
+    // obj_heart collision (i.e. it damages you) but descended from NO scanned parent, so the
+    // finder counted zero bullets and the mod produced no beep and no teleport at all. ----
+    // Sans (the entire fight was invisible to the scan):
+    "obj_gasterblaster", "obj_sans_bonebul",
+    // Mettaton EX - only the unused *test* parent was listed; these are the live attacks:
+    "obj_mettleg_l", "obj_mettleg_r", "obj_mettlightning_pl", "obj_kissybullet_pl",
+    "obj_bulletbomb", "obj_eggbullet_pl", "obj_mett_eggbullet",
+    // Asgore / endgame patterns:
+    "obj_meteorbullet", "obj_sunbullet", "obj_sunmoon", "obj_skymoon", "obj_skyorb",
+    "obj_ultimabullet",
+    // Hotland encounters:
+    "obj_orangefire", "obj_incendiary", "obj_lavabullet", "obj_blastbul",
+    // Papyrus bone managers / platforms (the bones themselves ride blt_parent, these do not):
+    "obj_bonestab", "obj_bonewall", "obj_boneplat", "obj_boneloop_v", "obj_bonebox",
+    // Undyne overworld chase + Asgore spear tiles:
+    "obj_speartile", "obj_speartilefake", "obj_asgorespear", "obj_asgorefakespear",
+    "obj_asgore_spearswipe", "obj_undyne_throwspear", "obj_controlspear",
+    // Assorted regular monsters:
+    "obj_butterflybullet_2", "obj_megaflybullet", "obj_frogbullet_ex", "obj_loopdog",
+    "obj_knighthammer", "obj_stromboli", "obj_crosszap", "obj_rainbowbolt",
+    "obj_gunarm_bolt", "obj_vulkincloudbul", "obj_vulkinlightning", "obj_wizardorb_chaser",
+    "obj_wizardorb_wall", "obj_regstar_blt", "obj_sonbullet", "obj_sorry_trashball",
+    "obj_bigglydeshot", "obj_amalgam_tooth", "obj_hg_debris", "obj_answernodule",
+    // NOTE: obj_temleg deliberately NOT listed. It looks like a Temmie projectile but its Step
+    // event reads obj_time.up/down/left/right - it is the PLAYER-controlled object in that fight
+    // (the soul is not obj_heart there at all, which is the real reason Temmie's fight never
+    // beeped). Listing it would make the mod treat the player's own avatar as a hazard.
+    // Misc bombs / shaped shots:
+    "obj_battlebomb", "obj_bombbul", "obj_plusbomb", "obj_chaosbomb", "obj_incendiarybomb",
+    "obj_xbullet", "obj_melonbullet", "obj_sugarbullet"
 };
+// BENEFICIAL projectiles - the ones you are meant to TOUCH, not dodge (player request). Each of
+// these damages you in its normal state but HEALS you and enables the spare when its flag is set:
+//   blt_vegbullet / blt_gravbullet : green == 1  (Vegetoid / Parsnik, after ACT Dinner)
+//   blt_growbullet                 : blue  == 3  (Woshua, after ACT Clean)
+//   obj_butterflybullet            : green == 1  (Whimsalot, after ACT Pray)
+// They must be EXCLUDED from the danger scan too - blt_vegbullet rides blt_parent, so the
+// safe-spot finder was actively steering the player AWAY from the vegetable they had to eat.
+var goodBullets = new[] {
+    new[]{ "blt_vegbullet",      "green == 1" },
+    new[]{ "blt_gravbullet",     "green == 1" },
+    new[]{ "blt_growbullet",     "blue == 3"  },
+    new[]{ "obj_butterflybullet","green == 1" }
+};
+bool HasObj(string n) { foreach (var o in Data.GameObjects) if (o.Name.Content == n) return true; return false; }
+
 var _bsb = new System.Text.StringBuilder();
+int _nfam = 0;
 foreach (var bo in bulletObjs)
 {
-    bool _ex = false;
-    foreach (var o in Data.GameObjects) { if (o.Name.Content == bo) { _ex = true; break; } }
-    if (_ex)
-        _bsb.Append("    with (" + bo + ") { if (global.nvda_nb < 120) { global.nvda_bx[global.nvda_nb] = x; global.nvda_byy[global.nvda_nb] = y; global.nvda_nb += 1; } }\n");
+    if (!HasObj(bo)) { Console.WriteLine("  (dodge scan: object not in this data, skipped: " + bo + ")"); continue; }
+    // Skip a bullet while it is in its beneficial state so it never counts as a hazard.
+    string skip = "";
+    foreach (var gb in goodBullets)
+        if (gb[0] == bo) skip = " if (" + gb[1] + ") continue;";
+    _bsb.Append("    with (" + bo + ") {" + skip + " if (global.nvda_nb < 120) { global.nvda_bx[global.nvda_nb] = x; global.nvda_byy[global.nvda_nb] = y; global.nvda_nb += 1; } }\n");
+    _nfam++;
+}
+// blt_vegbullet and friends ride blt_parent, so the generic parent sweep above still picks them
+// up. Re-exclude them there by position: collect their coords first, then drop any hazard entry
+// that matches one. Simpler and safer than trying to filter inside the parent with().
+var _gsb = new System.Text.StringBuilder();
+int _ngood = 0;
+foreach (var gb in goodBullets)
+{
+    if (!HasObj(gb[0])) { Console.WriteLine("  (touch cue: object not in this data, skipped: " + gb[0] + ")"); continue; }
+    _gsb.Append("    with (" + gb[0] + ") { if (" + gb[1] + ") { if (global.nvda_ng < 16) { global.nvda_gx[global.nvda_ng] = x; global.nvda_gy[global.nvda_ng] = y; global.nvda_ng += 1; } } }\n");
+    _ngood++;
 }
 string bulletCollect = _bsb.ToString();
-Console.WriteLine("Dodge scan covers " + bulletCollect.Split('\n').Length + " bullet families");
+string goodCollect = _gsb.ToString();
+Console.WriteLine("Dodge scan covers " + _nfam + " bullet families; touch cue covers " + _ngood + " beneficial families");
 
 string safespot = @"
 if (variable_global_exists(""nvda_opt_combat"") && global.nvda_opt_combat == 0) exit;
 if (variable_instance_exists(id, ""movement"") && movement == 1 && global.mnfight == 2)
 {" + panbridge + @"
+" + HintGml("dodge", "Dodging. A beep points at the safest spot in the box. Which ear you hear it in is left or right; how high the pitch is tells you up or down, high means the safe spot is near the top of the box and low means near the bottom. Press the arrow key toward it and your soul jumps onto the safe spot. You will hear a quick two-tone chime when you land. One press per move, you do not need to mash.") + @"
+    // Gather BENEFICIAL projectiles first (the ones to touch, not dodge), then hazards.
+    global.nvda_ng = 0;
+" + goodCollect + @"
     // Gather bullet positions once (cap for cost), then reuse for the grid scan.
     global.nvda_nb = 0;
 " + bulletCollect + @"
+    // Drop any hazard entry that is actually one of the beneficial projectiles. They descend from
+    // blt_parent, so the generic parent sweep re-adds them; without this the safe-spot finder
+    // treats the healing vegetable as a threat and steers the player away from the thing they
+    // must touch to spare the monster.
+    if (global.nvda_ng > 0)
+    {
+        var _fi = 0; var _fo = 0; var _fg = 0;
+        for (_fi = 0; _fi < global.nvda_nb; _fi += 1)
+        {
+            var _isgood = 0;
+            for (_fg = 0; _fg < global.nvda_ng; _fg += 1)
+            {
+                if (abs(global.nvda_bx[_fi] - global.nvda_gx[_fg]) < 2
+                 && abs(global.nvda_byy[_fi] - global.nvda_gy[_fg]) < 2) { _isgood = 1; break; }
+            }
+            if (_isgood == 0)
+            {
+                global.nvda_bx[_fo] = global.nvda_bx[_fi];
+                global.nvda_byy[_fo] = global.nvda_byy[_fi];
+                _fo += 1;
+            }
+        }
+        global.nvda_nb = _fo;
+    }
     if (!variable_instance_exists(id, ""nvda_scantimer"")) nvda_scantimer = 0;
     if (!variable_instance_exists(id, ""nvda_cuetimer""))  nvda_cuetimer  = 0;
     if (!variable_instance_exists(id, ""nvda_safex""))     { nvda_safex = x; nvda_safey = y; }
@@ -2074,7 +2281,52 @@ if (variable_instance_exists(id, ""movement"") && movement == 1 && global.mnfigh
         external_call(global.pan_beep, _pan, _freq, 120, 0.7);
     }
 
-    // Press the matching arrow (or WASD) to teleport onto the safe spot.
+    // ---- TOUCH-ME cue: a warm double chirp toward a beneficial projectile ----
+    // Deliberately unlike the single plain dodge beep so it can never be mistaken for a threat:
+    // two quick notes rising in pitch (a friendly ""come here""), aimed with the same pan rule.
+    if (global.nvda_ng > 0)
+    {
+        if (!variable_instance_exists(id, ""nvda_goodtimer"")) nvda_goodtimer = 0;
+        if (!variable_instance_exists(id, ""nvda_goodsaid"")) nvda_goodsaid = 0;
+        if (nvda_goodsaid == 0)
+        {
+            nvda_goodsaid = 1;
+" + HintGml("touchme", "Something friendly is on the field. The warm double chirp is not an attack - it is an item you are meant to TOUCH with your soul. Move onto it. It heals you and it is usually what makes this monster spareable.") + @"
+        }
+        // aim at the nearest beneficial projectile
+        var _gi = 0; var _gbest = 99999999; var _gbx = x; var _gby = y;
+        for (_gi = 0; _gi < global.nvda_ng; _gi += 1)
+        {
+            var _gdx = global.nvda_gx[_gi] - x;
+            var _gdy = global.nvda_gy[_gi] - y;
+            var _gsq = (_gdx * _gdx) + (_gdy * _gdy);
+            if (_gsq < _gbest) { _gbest = _gsq; _gbx = global.nvda_gx[_gi]; _gby = global.nvda_gy[_gi]; }
+        }
+        nvda_goodtimer -= 1;
+        if (nvda_goodtimer <= 0)
+        {
+            nvda_goodtimer = 22;
+            var _gpan = (_gbx - x) / _hw;
+            if (_gpan < -1) _gpan = -1; if (_gpan > 1) _gpan = 1;
+            var _gnv = (y - _gby) / _hh;
+            if (_gnv < -1) _gnv = -1; if (_gnv > 1) _gnv = 1;
+            var _gf = 520 + (_gnv * 200);
+            external_call(global.pan_beep, _gpan, _gf, 70, 0.6);
+            external_call(global.pan_beep, _gpan, _gf * 1.5, 70, 0.6);
+        }
+    }
+    else if (variable_instance_exists(id, ""nvda_goodsaid"")) nvda_goodsaid = 0;
+
+    // ---- Arrow / WASD = dodge onto the safe spot (Lilian's original design, RESTORED) ----
+    // The player hears the beep (pan = left/right, pitch = up/down) and presses the arrow
+    // TOWARD the safe spot; the soul snaps onto it. The ARROWS are the dodge -- the player
+    // still reads the field by ear and chooses the direction; the assist only handles the
+    // precise landing. This was briefly moved onto a one-press J key, which auto-solved the
+    // dodge FOR the player and left the arrows doing nothing -- not what we wanted.
+    // The real bug that the J version was chasing was that the old teleport made NO sound, so
+    // a teleport was indistinguishable from a normal walk step (""I kept holding up and still
+    // got hit""). That is fixed HERE the right way: every successful jump plays a two-tone
+    // ""landed"" chime, so a teleport can never be silently confused with a walk.
     if (global.nvda_nb > 0)
     {
         var _dx = nvda_safex - x;
@@ -2087,8 +2339,26 @@ if (variable_instance_exists(id, ""movement"") && movement == 1 && global.mnfigh
         if ((keyboard_check_pressed(vk_down)  || keyboard_check_pressed(ord(""S""))) && _dy >   _dz)  _go = 1;
         if (_go == 1)
         {
-            x = nvda_safex;
-            y = nvda_safey;
+            // Refuse to land on top of a bullet: keep the soul put and play a low
+            // ""nowhere safe"" tone rather than snapping straight into damage.
+            var _clear = 1; var _ck = 0;
+            for (_ck = 0; _ck < global.nvda_nb; _ck += 1)
+            {
+                if (abs(nvda_safex - global.nvda_bx[_ck]) < 12 && abs(nvda_safey - global.nvda_byy[_ck]) < 12)
+                { _clear = 0; break; }
+            }
+            if (_clear == 1)
+            {
+                x = nvda_safex;
+                y = nvda_safey;
+                // landed confirmation: short centred two-tone, distinct from the sonar beep
+                external_call(global.pan_beep, 0, 660, 45, 0.55);
+                external_call(global.pan_beep, 0, 880, 45, 0.55);
+            }
+            else
+            {
+                external_call(global.pan_beep, 0, 180, 90, 0.5);   // ""nowhere safe right now""
+            }
         }
     }
 
@@ -2303,7 +2573,7 @@ if (global.interact == 5)
             var _o = global.menucoord[0];
             var _nm = ""Objeto""; if (_o == 1) _nm = ""Estadísticas""; if (_o == 2) _nm = ""Móvil"";
             _say = _nm;
-            if (_enter) _say = ""Menu. "" + _say;
+            if (_enter) _say = ""Menú. "" + _say;
         }
         else if (_mn == 1 || _mn == 6)
         {
@@ -2365,8 +2635,8 @@ if (global.interact == 5)
                 var _nl = 0; if (_need > 0) _nl = _need - _xp;
                 _say = ""Estadísticas. "" + _nm + "". LOVE "" + string(_lv) +
                        "". PV "" + string(_hp) + "" de "" + string(_mhp) +
-                       "". Ataque "" + string(_at) + "" plus "" + string(_ws) +
-                       "". Defensa "" + string(_df) + "" plus "" + string(_ad) +
+                       "". Ataque "" + string(_at) + "" más "" + string(_ws) +
+                       "". Defensa "" + string(_df) + "" más "" + string(_ad) +
                        "". Oro "" + string(_gd) + "". Exp "" + string(_xp) +
                        "". Siguiente "" + string(_nl) + ""."";
             }
@@ -2685,6 +2955,11 @@ string watch = @"
     else if (_m == 1) _cur = menuc[1];
     else if (_m == 2) _cur = menuc[2];
     else if (_m == 3) _cur = menuc[3];
+    // menus 5 and 6 exist only on obj_shop5, the Tem Shop - the only shop that BUYS from you.
+    // A player reported ""the Tem Shop sell thing isn't reading"": the reader only ever handled
+    // menus 0-3, so the whole sell interface was silent.
+    else if (_m == 5) _cur = sellpos;
+    else if (_m == 6) _cur = sellpos2;
     if (_m != nvda_smenu || _cur != nvda_scur)
     {
         var _enter = (_m != nvda_smenu);
@@ -2700,14 +2975,14 @@ string watch = @"
         {
             var _c = menuc[1];
             if (_c >= 0 && _c <= 3)
-                _say = scr_gettext(""item_name_"" + string(item[_c])) + "", "" + string(itemcost[_c]) + "" gold"";
+                _say = scr_gettext(""item_name_"" + string(item[_c])) + "", "" + string(itemcost[_c]) + "" de oro"";
             else
                 _say = ""Salida"";
             if (_enter) _say = ""Comprar. "" + _say;
         }
         else if (_m == 2)
         {
-            if (menuc[2] == 0) _say = ""Sí, comprar por "" + string(itemcost[menuc[1]]) + "" gold"";
+            if (menuc[2] == 0) _say = ""Sí, comprar por "" + string(itemcost[menuc[1]]) + "" de oro"";
             else _say = ""No"";
             if (_enter) _say = ""Confirmar. "" + _say;
         }
@@ -2723,6 +2998,22 @@ string watch = @"
             }
             else _say = ""Salida"";
             if (_enter) _say = ""Hablar. "" + _say;
+        }
+        else if (_m == 5)
+        {
+            // Sell list: a 2-column, 4-row grid of your inventory (sellpos 0-7), 8 = Exit.
+            // value[i] holds Temmie's offer; -1 means she will not buy it; sold[i] = already sold.
+            if (sellpos == 8) _say = ""Salida"";
+            else if (sold[sellpos] == 1) _say = ""Ya vendido"";
+            else if (value[sellpos] == -1) _say = string(global.itemnameb[sellpos]) + "", no te comprará esto"";
+            else _say = string(global.itemnameb[sellpos]) + "", "" + string(value[sellpos]) + "" de oro"";
+            if (_enter) _say = ""Vender. "" + _say;
+        }
+        else if (_m == 6)
+        {
+            if (sellpos2 == 0) _say = ""Sí, vender por "" + string(value[sellpos]) + "" de oro"";
+            else _say = ""No"";
+            if (_enter) _say = ""Vender "" + string(global.itemnameb[sellpos]) + "" por "" + string(value[sellpos]) + "" de oro? "" + _say;
         }
         if (_say != """")
             external_call(global.nvda_speak, _say);
@@ -3153,7 +3444,7 @@ string gml = @"
             }
             if (firsttime == 1)
             {
-                external_call(global.nvda_speak, ""Elección. "" + pick + "", or "" + alt + "". Pulsa izquierda o derecha y luego Z. En "" + pick);
+                external_call(global.nvda_speak, ""Elección. "" + pick + "", o "" + alt + "". Pulsa izquierda o derecha y luego Z. En "" + pick);
             }
             else
             {
@@ -3170,6 +3461,81 @@ Console.WriteLine("Injected dialogue-choice announcer into obj_choicer Step_0");
 
 }
 
+// ===== inject_itembox.csx =====
+{
+// Undertale accessibility - DIMENSIONAL BOX reader (obj_itemswapper).
+//
+// Player report 2026-07-20: "the boxes around the world are not showing things to put away."
+// Correct - the overworld C-menu reader covers global.menuno 6/7, but those are only ever set by
+// obj_storagemenu (never instantiated in this build) and by the two DEBUG keys I and O, which are
+// gated behind global.debug == 1. The box a real player actually opens is obj_itemswapper, a
+// runtime-created two-column overlay that was completely unnarrated.
+//
+// Layout: LEFT column = your pockets (8 slots, global.item[i]), RIGHT column = the box (10 slots,
+// global.flag[boxno + i], boxno = 300 for box A / 312 for box B). column 0/1 = which side, c0y/c1y
+// = the row cursor within each side.
+//
+// GOTCHA: both columns are drawn out of the SAME global.itemname[] array - Draw_0 fills it with
+// scr_itemname() for the left side, then OVERWRITES it with scr_storagename(boxno) for the right.
+// Reading it after Draw therefore always yields the BOX contents. So we re-call the matching
+// filler ourselves before reading whichever side the cursor is on.
+
+foreach (var fn in new[]{
+    "external_define","external_call","variable_global_exists","variable_instance_exists","string_pos"
+}) Data.Functions.EnsureDefined(fn, Data.Strings);
+
+string boxwatch = @"
+{
+    if (buffer > 3)
+    {
+        if (!variable_global_exists(""nvda_ready""))
+        {
+            global.nvda_init = external_define(""nvda_gm.dll"", ""gmnvda_init"", 0, 0, 1, 1);
+            global.nvda_speak = external_define(""nvda_gm.dll"", ""gmnvda_speak"", 0, 0, 1, 1);
+            external_call(global.nvda_init, """");
+            global.nvda_ready = 1;
+        }
+" + HintGml("itembox", "Storage box. The left side is what you are carrying, the right side is the box. Press left and right to swap sides, up and down to move through the slots, and Z on an item to move it across to the other side.") + @"
+        if (!variable_instance_exists(id, ""nvda_bcol"")) { nvda_bcol = -99; nvda_brow = -99; }
+        var _row = c0y;
+        if (column == 1) _row = c1y;
+        if (column != nvda_bcol || _row != nvda_brow)
+        {
+            var _ent = (column != nvda_bcol);
+            nvda_bcol = column;
+            nvda_brow = _row;
+            var _nm = """";
+            if (column == 0)
+            {
+                scr_itemname();
+                _nm = global.itemname[_row];
+                if (global.item[_row] == 0) _nm = ""Vacío"";
+            }
+            else
+            {
+                scr_storagename(boxno);
+                _nm = global.itemname[_row];
+                if (global.flag[boxno + _row] == 0) _nm = ""Vacío"";
+            }
+            var _s = _nm;
+            if (_ent)
+            {
+                if (column == 0) _s = ""Llevas. "" + _s;
+                else _s = ""Caja. "" + _s;
+            }
+            external_call(global.nvda_speak, _s);
+        }
+    }
+}";
+
+var gib = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+var ibcode = Data.Code.ByName("gml_Object_obj_itemswapper_Draw_0");
+if (ibcode != null) { gib.QueueAppend(ibcode, boxwatch); gib.Import();
+    Console.WriteLine("Injected DIMENSIONAL BOX reader (obj_itemswapper: both columns + hint)"); }
+else Console.WriteLine("  (obj_itemswapper Draw_0 not found - box reader skipped)");
+
+}
+
 // ===== inject_shield.csx =====
 {
 Data.Functions.EnsureDefined("external_define", Data.Strings);
@@ -3179,6 +3545,7 @@ Data.Functions.EnsureDefined("variable_instance_exists", Data.Strings);
 Data.Functions.EnsureDefined("point_distance", Data.Strings);
 Data.Functions.EnsureDefined("abs", Data.Strings);
 Data.Functions.EnsureDefined("instance_exists", Data.Strings);
+Data.Functions.EnsureDefined("string_pos", Data.Strings);
 
 string gml = @"
 {
@@ -3203,11 +3570,7 @@ string gml = @"
         nvda_shtimer = 0;
         nvda_sh_intro = 0;
     }
-    if (nvda_sh_intro == 0)
-    {
-        nvda_sh_intro = 1;
-        external_call(global.nvda_speak, ""Escudo. Bloquea cada lanza con la flecha hacia ella. Pitido: oído izquierdo o derecho es izquierda o derecha, tono agudo es arriba, tono grave es abajo."");
-    }
+" + HintGml("shield", "Green soul, shielding. You cannot move. Turn your shield to face each spear by pressing the arrow key toward it. The beep tells you which side the next spear is coming from: left ear means block left, right ear means block right, a high pitch means block up, a low pitch means block down.") + @"
 
     var cx = x;
     var cy = y;
@@ -3561,7 +3924,7 @@ string gml = @"
             if (balt == """") balt = ""option"";
             if (bfirst == 1)
             {
-                external_call(global.nvda_speak, ""Elige. "" + bpick + "", or "" + balt + "". Pulsa izquierda o derecha y luego Z. En "" + bpick);
+                external_call(global.nvda_speak, ""Elige. "" + bpick + "", o "" + balt + "". Pulsa izquierda o derecha y luego Z. En "" + bpick);
             }
             else
             {
@@ -4028,7 +4391,10 @@ string gml = @"
         global.nvda_seen_chars = ini_read_string(""descriptions"", ""seen"", ""|"");
         global.nvda_cs_seen = ini_read_string(""descriptions"", ""cutscenes"", ""|"");
         global.nvda_amb_seen = ini_read_string(""descriptions"", ""ambiance"", ""|"");
+        global.nvda_hint_seen = ini_read_string(""descriptions"", ""hints"", ""|"");
         ini_close();
+        global.nvda_hint = """";
+        global.nvda_hintkey = """";
         global.nvda_assist = (global.nvda_mode == 0);
         global.nvda_menu_open = 0;
         global.nvda_menu_sel = 0;
@@ -4055,6 +4421,7 @@ string gml = @"
         if (variable_global_exists(""nvda_seen_chars"")) ini_write_string(""descriptions"", ""seen"", global.nvda_seen_chars);
         if (variable_global_exists(""nvda_cs_seen"")) ini_write_string(""descriptions"", ""cutscenes"", global.nvda_cs_seen);
         if (variable_global_exists(""nvda_amb_seen"")) ini_write_string(""descriptions"", ""ambiance"", global.nvda_amb_seen);
+        if (variable_global_exists(""nvda_hint_seen"")) ini_write_string(""descriptions"", ""hints"", global.nvda_hint_seen);
         ini_close();
         global.nvda_opt_dirty = 0;
     }
@@ -4645,7 +5012,7 @@ Console.WriteLine("Injected accessibility options menu (K opens; 7 options; ini-
 // Rotated-gravity variants (movement 11/12/13) + Sans' obj_heart_sansbattle still deferred.
 {
     foreach (var f in new string[] { "external_define","external_call","variable_global_exists",
-             "variable_instance_exists","abs","round" })
+             "variable_instance_exists","abs","round","string_pos" })
         Data.Functions.EnsureDefined(f, Data.Strings);
 
     string bs = @"
@@ -4672,11 +5039,7 @@ Console.WriteLine("Injected accessibility options menu (K opens; 7 options; ini-
         if (!variable_instance_exists(id, ""nvda_bs_greeted"")) nvda_bs_greeted = 0;
         if (!variable_global_exists(""nvda_jumptimer"")) global.nvda_jumptimer = 0;
 
-        if (nvda_bs_greeted == 0)
-        {
-            external_call(global.nvda_speak, ""Alma azul. Pulsa arriba para saltar. El mod ajusta la altura del salto por ti, así que solo tienes que cronometrar cada salto con los pitidos. Un pitido agudo es un hueso pequeño, un pitido grave es un hueso grande, y un pulso grave y lento significa un hueso en el techo, así que quédate abajo."");
-            nvda_bs_greeted = 1;
-        }
+" + HintGml("bluesoul", "Blue soul. Tap up once to jump, one tap per bone - do not hold or mash. The mod picks your jump height for you, so all you have to do is time the tap. The beeps speed up and rise as a bone gets closer; jump when they are fastest. A steady low pulse means a ceiling bone, so stay down and do not jump at all.") + @"
 
         var _floory = global.idealborder[3] - 16;    // grounded-heart line
         var _boxtop = global.idealborder[2] + 6;      // highest she can be
@@ -4763,4 +5126,432 @@ Console.WriteLine("Injected accessibility options menu (K opens; 7 options; ini-
     bsg.QueueAppend(Data.Code.ByName("gml_Object_obj_heart_Step_0"), bs);
     bsg.Import();
     Console.WriteLine("Injected BLUE-SOUL jump cue v2 (auto-height + type-aware sonar on obj_heart)");
+}
+
+// ===== TEST WARP menu (key I) — jump straight to a minigame to build/test its assist =====
+// Lilian can't speed-run to Hotland every time, so this drops her into any minigame room on
+// demand. NON-DESTRUCTIVE: it only room_goto's and repositions the (persistent) player; it does
+// NOT touch global.plot and it does NOT save. TESTING AID -- tell her: do not SAVE after warping;
+// reload the file to get back to real progress.
+// TODO before any public ship: gate this behind a debug flag or strip it out.
+{
+    foreach (var f in new string[] { "external_define","external_call","variable_global_exists",
+             "keyboard_check_pressed","ord","room_goto","instance_exists","file_exists" })
+        Data.Functions.EnsureDefined(f, Data.Strings);
+
+    string warp = @"
+{
+    if (!variable_global_exists(""nvda_warp_init""))
+    {
+        global.nvda_warp_init = 1;
+        // DEV GATE: the warp menu only activates if a marker file sits beside the game exe. The
+        // release ships WITHOUT that file, so players never get the warp (it can't touch their save);
+        // for our own testing we drop an empty ""nvda_devwarp.txt"" into the game folder to enable it.
+        global.nvda_dev = file_exists(""nvda_devwarp.txt"");
+        global.nvda_warp_open = 0;
+        global.nvda_warp_sel = 0;
+        global.nvda_warp_n = 6;
+        global.nvda_warp_name[0] = ""Cooking show jetpack"";         global.nvda_warp_room[0] = room_fire_cookingshow;  global.nvda_warp_x[0] = 20;  global.nvda_warp_y[0] = 360;
+        global.nvda_warp_name[1] = ""Colored tile puzzle"";           global.nvda_warp_room[1] = room_fire_multitile;    global.nvda_warp_x[1] = 120; global.nvda_warp_y[1] = 100;
+        global.nvda_warp_name[2] = ""News report, lasers and bombs""; global.nvda_warp_room[2] = room_fire_newsreport;   global.nvda_warp_x[2] = 80;  global.nvda_warp_y[2] = 300;
+        global.nvda_warp_name[3] = ""Shooting puzzle"";               global.nvda_warp_room[3] = room_fire_shootguy_1;   global.nvda_warp_x[3] = 140; global.nvda_warp_y[3] = 180;
+        global.nvda_warp_name[4] = ""Steam vent jump puzzle"";        global.nvda_warp_room[4] = room_fire_rpuzzle;      global.nvda_warp_x[4] = 560; global.nvda_warp_y[4] = 280;
+        global.nvda_warp_name[5] = ""Waterfall bridge seed puzzle"";  global.nvda_warp_room[5] = room_water_bridgepuzz1; global.nvda_warp_x[5] = 60;  global.nvda_warp_y[5] = 140;
+    }
+    if (!variable_global_exists(""nvda_ready""))
+    {
+        global.nvda_init = external_define(""nvda_gm.dll"", ""gmnvda_init"", 0, 0, 1, 1);
+        global.nvda_speak = external_define(""nvda_gm.dll"", ""gmnvda_speak"", 0, 0, 1, 1);
+        external_call(global.nvda_init, """");
+        global.nvda_ready = 1;
+    }
+    if (global.nvda_dev == 1 && keyboard_check_pressed(ord(""I"")))
+    {
+        global.nvda_warp_open = 1 - global.nvda_warp_open;
+        if (global.nvda_warp_open == 1)
+            external_call(global.nvda_speak, ""Test warp menu. Up and down to choose, Z to warp, I to close. "" + global.nvda_warp_name[global.nvda_warp_sel]);
+        else
+            external_call(global.nvda_speak, ""Warp menu closed."");
+    }
+    if (global.nvda_dev == 1 && global.nvda_warp_open == 1)
+    {
+        var _mv = 0;
+        if (keyboard_check_pressed(vk_down)) { global.nvda_warp_sel += 1; _mv = 1; }
+        if (keyboard_check_pressed(vk_up))   { global.nvda_warp_sel -= 1; _mv = 1; }
+        if (global.nvda_warp_sel < 0) global.nvda_warp_sel = global.nvda_warp_n - 1;
+        if (global.nvda_warp_sel >= global.nvda_warp_n) global.nvda_warp_sel = 0;
+        if (_mv == 1) external_call(global.nvda_speak, global.nvda_warp_name[global.nvda_warp_sel]);
+        if (keyboard_check_pressed(ord(""Z"")))
+        {
+            var _wi = global.nvda_warp_sel;
+            global.nvda_warp_open = 0;
+            external_call(global.nvda_speak, ""Warping to "" + global.nvda_warp_name[_wi] + "". Do not save. Reload your file to go back."");
+            room_goto(global.nvda_warp_room[_wi]);
+            if (instance_exists(obj_mainchara))
+            {
+                obj_mainchara.x = global.nvda_warp_x[_wi];
+                obj_mainchara.y = global.nvda_warp_y[_wi];
+            }
+        }
+    }
+}";
+    var wg = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+    wg.QueueAppend(Data.Code.ByName("gml_Object_obj_time_Step_1"), warp);
+    wg.Import();
+    Console.WriteLine("Injected TEST WARP menu (I key; 6 minigame destinations)");
+}
+
+// ===== MINIGAME 1: COOKING-SHOW JETPACK CLIMB (obj_jetpackchara) =====
+// The climb is HORIZONTAL-only: you rise automatically (obj_counterscroller.fakev), you only steer
+// left/right (x clamped 330..620). Hazards = obj_flymett + its obj_flylight_a / obj_bouncelight lights,
+// which fall from above; a hit fires obj_jetpackchara User Event 0 and slams fakev to -6 = you drop
+// and lose progress. FAIL = the 60s timer (timertime, shown as ceil/30 seconds) hits 0 before the
+// distance meter (dist 20250 -> 0) empties. So the accessible layer is: a LEFT/RIGHT "clear side"
+// sonar (pan = safe direction, pitch = how close the nearest light is), spoken time countdown +
+// progress milestones, a win/lose callout, and -- only in Assisted mode (M) -- a gentler knockback
+// so one missed dodge is not fatal (this minigame is not a battle, so M's can't-die/slow don't reach it).
+{
+    foreach (var f in new string[] { "external_define","external_call","variable_global_exists",
+             "variable_instance_exists","instance_exists","ceil","sqrt","string","round" })
+        Data.Functions.EnsureDefined(f, Data.Strings);
+
+    string jet = @"
+{
+    if (variable_instance_exists(id, ""won"") && won == 0)
+    {
+        if (!variable_global_exists(""pan_ready""))
+        {
+            global.pan_init = external_define(""gmpan.dll"", ""gmpan_init"", 0, 0, 0);
+            global.pan_beep = external_define(""gmpan.dll"", ""gmpan_beep"", 0, 0, 4, 0, 0, 0, 0);
+            external_call(global.pan_init);
+            global.pan_ready = 1;
+        }
+        if (!variable_global_exists(""nvda_ready""))
+        {
+            global.nvda_init = external_define(""nvda_gm.dll"", ""gmnvda_init"", 0, 0, 1, 1);
+            global.nvda_speak = external_define(""nvda_gm.dll"", ""gmnvda_speak"", 0, 0, 1, 1);
+            external_call(global.nvda_init, """");
+            global.nvda_ready = 1;
+        }
+        if (!variable_global_exists(""nvda_jet_sec"")) global.nvda_jet_sec = -1;
+        if (!variable_global_exists(""nvda_jet_prog"")) global.nvda_jet_prog = 0;
+        if (!variable_global_exists(""nvda_jet_result"")) global.nvda_jet_result = 0;
+        if (!variable_instance_exists(id, ""nvda_jet_ct"")) nvda_jet_ct = 0;
+        if (!variable_instance_exists(id, ""nvda_jet_greet"")) nvda_jet_greet = 0;
+
+        // fresh climb (meter near full) -> reset the per-attempt trackers so a retry re-announces
+        if (dist > (maxdist - 300))
+        {
+            global.nvda_jet_prog = 0;
+            global.nvda_jet_result = 0;
+            global.nvda_jet_sec = -1;
+        }
+
+        // one-time hint (once per save; H repeats it)
+        if (nvda_jet_greet == 0)
+        {
+            nvda_jet_greet = 1;
+" + HintGml("jetpack", "Jetpack climb. You rise on your own. Steer left and right with the arrow keys to dodge Mettaton's flying lights. If a light hits you it knocks you back down and costs time. A beep points to the clear side, whichever ear you hear it in is the safe way to move, and the pitch rises as a light gets close. Reach the top before the timer runs out.") + @"
+        }
+
+        // ---- gather the REAL cooking-show projectiles: the sugar WALL (16 bullets with a 2-column
+        // GAP = the safe spot -> the clearance scan below finds that gap), plus eggs and milk shots.
+        // Include anything not already well BELOW the player (i.e. drop bullets that have passed). ----
+        global.nvda_jn = 0;
+        with (obj_sugarbullet)     { if ((other.y - y) > -40 && global.nvda_jn < 90) { global.nvda_jx[global.nvda_jn] = x; global.nvda_jy[global.nvda_jn] = y; global.nvda_jn += 1; } }
+        with (obj_mett_eggbullet)  { if ((other.y - y) > -40 && global.nvda_jn < 90) { global.nvda_jx[global.nvda_jn] = x; global.nvda_jy[global.nvda_jn] = y; global.nvda_jn += 1; } }
+        with (obj_milkofhell_shot) { if ((other.y - y) > -40 && global.nvda_jn < 90) { global.nvda_jx[global.nvda_jn] = x; global.nvda_jy[global.nvda_jn] = y; global.nvda_jn += 1; } }
+
+        // ---- pick the clearest x column across the lane [330,620] ----
+        var _x0 = 330; var _x1 = 620; var _cols = 9;
+        var _bestx = x; var _bestclr = -1; var _near = 99999999;
+        var _c; var _k;
+        for (_c = 0; _c < _cols; _c += 1)
+        {
+            var _cx = _x0 + (_x1 - _x0) * _c / (_cols - 1);
+            var _mind = 99999999;
+            for (_k = 0; _k < global.nvda_jn; _k += 1)
+            {
+                var _ddx = _cx - global.nvda_jx[_k];
+                var _ddy = (y - global.nvda_jy[_k]) * 0.5;   // vertical matters less (you can't move up/down)
+                var _sq = (_ddx * _ddx) + (_ddy * _ddy);
+                if (_sq < _mind) _mind = _sq;
+            }
+            if (_mind > _bestclr) { _bestclr = _mind; _bestx = _cx; }
+        }
+        for (_k = 0; _k < global.nvda_jn; _k += 1)
+        {
+            var _pdx = x - global.nvda_jx[_k];
+            var _pdy = y - global.nvda_jy[_k];
+            var _psq = (_pdx * _pdx) + (_pdy * _pdy);
+            if (_psq < _near) _near = _psq;
+        }
+
+        // ---- panned 'clear side' cue, only while lights are actually near ----
+        nvda_jet_ct -= 1;
+        if (global.nvda_jn > 0 && nvda_jet_ct <= 0)
+        {
+            nvda_jet_ct = 12;
+            var _pan = (_bestx - x) / 145;
+            if (_pan < -1) _pan = -1; if (_pan > 1) _pan = 1;
+            var _nd = sqrt(_near); if (_nd > 200) _nd = 200;
+            var _freq = 800 - ((_nd / 200) * 400);   // nearest light close = high/urgent, far = low
+            external_call(global.pan_beep, _pan, _freq, 90, 0.6);
+        }
+
+        // ---- spoken time countdown ----
+        var _secs = ceil(timertime / 30);
+        if (_secs != global.nvda_jet_sec)
+        {
+            global.nvda_jet_sec = _secs;
+            if (_secs == 30 || _secs == 20 || _secs == 15 || _secs == 10 || (_secs <= 5 && _secs >= 1))
+                external_call(global.nvda_speak, string(_secs) + "" segundos"");
+        }
+
+        // ---- progress milestones ----
+        var _frac = (maxdist - dist) / maxdist;
+        if (_frac >= 0.5 && global.nvda_jet_prog < 1) { global.nvda_jet_prog = 1; external_call(global.nvda_speak, ""Vas por la mitad.""); }
+        if (_frac >= 0.85 && global.nvda_jet_prog < 2) { global.nvda_jet_prog = 2; external_call(global.nvda_speak, ""Ya casi estás arriba.""); }
+
+        // ---- Assisted mode only: soften the knockback (M's can't-die/slow don't reach this minigame) ----
+        if (variable_global_exists(""nvda_assist"") && global.nvda_assist == 1 && instance_exists(obj_counterscroller))
+        {
+            if (obj_counterscroller.fakev < 0) obj_counterscroller.fakev += 0.5;
+        }
+    }
+    else if (variable_instance_exists(id, ""won""))
+    {
+        if (!variable_global_exists(""nvda_jet_result"")) global.nvda_jet_result = 0;
+        if (won == 1 && global.nvda_jet_result != 1)
+        { global.nvda_jet_result = 1; if (variable_global_exists(""nvda_ready"")) external_call(global.nvda_speak, ""¡Has llegado arriba!""); }
+        if (won == 2 && global.nvda_jet_result != 2)
+        { global.nvda_jet_result = 2; if (variable_global_exists(""nvda_ready"")) external_call(global.nvda_speak, ""Se acabó el tiempo.""); }
+    }
+}";
+    var jg = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+    jg.QueueAppend(Data.Code.ByName("gml_Object_obj_jetpackchara_Step_0"), jet);
+    jg.Import();
+    Console.WriteLine("Injected MINIGAME 1: cooking-show jetpack climb (left/right sonar + time/progress speech)");
+}
+
+// ===== MINIGAME 2: MULTICOLOR TILE MAZE (obj_tileguy on the grid, obj_multitileevent controller) =====
+// Deliberate grid walk (obj_tileguy, 20px steps, arrows). Tile codes (obj_tileguy Other_10/11):
+// 1 pink=safe, 2 red=wall(can't enter), 3 purple=smell LEMONS(+slide), 4 yellow=ZAP, 5 orange=smell
+// ORANGES, 6 blue/water=piranhas bite ONLY if you smell of oranges (else safe), 7 green=harmless.
+// The 'orange' var: -1 none, 0 lemons(safe in water), 1 oranges(bitten in water). WIN = step right off
+// the edge onto no-tile (obj_multitileevent con->75); FAIL = 30s timer (cooltimer 900) runs out (con->30,
+// non-lethal). Accessible layer: entry hint, Q = look-ahead scan of the 4 neighbours (safe/blocked/
+// danger, smell-aware), spoken smell/piranha/tile feedback, timer countdown, and a win/lose callout.
+{
+    foreach (var f in new string[] { "external_define","external_call","variable_global_exists",
+             "variable_instance_exists","instance_exists","instance_position","keyboard_check_pressed",
+             "ord","ceil","string" })
+        Data.Functions.EnsureDefined(f, Data.Strings);
+
+    string tbridge = @"
+    if (!variable_global_exists(""nvda_ready""))
+    {
+        global.nvda_init = external_define(""nvda_gm.dll"", ""gmnvda_init"", 0, 0, 1, 1);
+        global.nvda_speak = external_define(""nvda_gm.dll"", ""gmnvda_speak"", 0, 0, 1, 1);
+        external_call(global.nvda_init, """");
+        global.nvda_ready = 1;
+    }";
+
+    // Create: entry hint + reset per-attempt trackers
+    string tileCreate = @"
+{" + tbridge + @"
+    global.nvda_tile_sec = -1;
+" + HintGml("tilemaze", "Colored tile maze. Walk the grid with the arrow keys to reach the right-hand side before the timer runs out. Press Q at any time to scan the four tiles around you. The rules: pink is safe, red is a wall, orange tiles make you smell of oranges, purple tiles make you smell of lemons. Water is safe UNLESS you smell of oranges, then piranhas bite, so before crossing water step on a purple tile to switch to lemons. Yellow tiles zap you. Green is harmless.") + @"
+}";
+    // Step: timer, smell/piranha/tile feedback, Q look-ahead scan
+    string tileStep = @"
+{" + tbridge + @"
+    if (!variable_global_exists(""nvda_tile_sec"")) global.nvda_tile_sec = -1;
+    if (!variable_instance_exists(id, ""nvda_t_lastmv"")) nvda_t_lastmv = 0;
+    if (!variable_instance_exists(id, ""nvda_t_lasto"")) nvda_t_lasto = orange;
+    if (!variable_instance_exists(id, ""nvda_t_lastpir"")) nvda_t_lastpir = pir;
+
+    // ---- timer countdown ----
+    if (instance_exists(obj_multitileevent))
+    {
+        var _s = ceil(obj_multitileevent.cooltimer / 30);
+        if (_s != global.nvda_tile_sec)
+        {
+            global.nvda_tile_sec = _s;
+            if (_s == 20 || _s == 15 || _s == 10 || (_s <= 5 && _s >= 1))
+                external_call(global.nvda_speak, string(_s) + "" segundos"");
+        }
+    }
+
+    // ---- smell change ----
+    if (orange != nvda_t_lasto)
+    {
+        nvda_t_lasto = orange;
+        if (orange == 1) external_call(global.nvda_speak, ""Hueles a naranjas. Ahora el agua muerde."");
+        else if (orange == 0) external_call(global.nvda_speak, ""Hueles a limones. Ahora el agua es segura."");
+    }
+    // ---- piranha bite ----
+    if (pir > nvda_t_lastpir) { nvda_t_lastpir = pir; external_call(global.nvda_speak, ""¡Ay, pirañas!""); }
+
+    // ---- arrival: name the tile you stopped on (skip orange/purple - smell lines cover those) ----
+    if (nvda_t_lastmv != 0 && moving == 0)
+    {
+        var _cx = x + 10; var _cy = y + 20; var _c = -1;
+        if (instance_position(_cx, _cy, obj_tilepink)) _c = 1;
+        if (instance_position(_cx, _cy, obj_tileyellow)) _c = 4;
+        if (instance_position(_cx, _cy, obj_tileblue)) _c = 6;
+        if (instance_position(_cx, _cy, obj_tilegreen)) _c = 7;
+        var _nm = """";
+        if (_c == 1) _nm = ""Rosa"";
+        else if (_c == 4) _nm = ""Amarillo, descarga"";
+        else if (_c == 6) { if (orange == 1) _nm = ""Agua, peligro""; else _nm = ""Agua""; }
+        else if (_c == 7) _nm = ""Verde"";
+        if (_nm != """") external_call(global.nvda_speak, _nm);
+    }
+    nvda_t_lastmv = moving;
+
+    // ---- Q = scan the four neighbours (smell-aware) ----
+    if (moving == 0 && keyboard_check_pressed(ord(""Q"")))
+    {
+        var _say = """";
+        var _dn; var _dx; var _dy; var _dnm;
+        for (_dn = 0; _dn < 4; _dn += 1)
+        {
+            if (_dn == 0) { _dx = -10; _dy = 25; _dnm = ""Izquierda""; }
+            if (_dn == 1) { _dx = 30;  _dy = 25; _dnm = ""Derecha""; }
+            if (_dn == 2) { _dx = 10;  _dy = 5;  _dnm = ""Arriba""; }
+            if (_dn == 3) { _dx = 10;  _dy = 45; _dnm = ""Abajo""; }
+            var _cx = x + _dx; var _cy = y + _dy; var _c = -1;
+            if (instance_position(_cx, _cy, obj_tilepink)) _c = 1;
+            if (instance_position(_cx, _cy, obj_tilered)) _c = 2;
+            if (instance_position(_cx, _cy, obj_tilepurple)) _c = 3;
+            if (instance_position(_cx, _cy, obj_tileyellow)) _c = 4;
+            if (instance_position(_cx, _cy, obj_tileorange)) _c = 5;
+            if (instance_position(_cx, _cy, obj_tileblue)) _c = 6;
+            if (instance_position(_cx, _cy, obj_tilegreen)) _c = 7;
+            var _p = """";
+            if (_c == -1) { if (_dn == 1) _p = ""la salida""; else _p = ""borde""; }
+            else if (_c == 1) _p = ""rosa, seguro"";
+            else if (_c == 2) _p = ""rojo, bloqueado"";
+            else if (_c == 3) _p = ""morado, limones"";
+            else if (_c == 4) _p = ""amarillo, descarga"";
+            else if (_c == 5) _p = ""olor a naranja"";
+            else if (_c == 6) { if (orange == 1) _p = ""agua, pirañas""; else _p = ""agua, seguro""; }
+            else if (_c == 7) _p = ""verde"";
+            _say += _dnm + "", "" + _p + "". "";
+        }
+        external_call(global.nvda_speak, _say);
+    }
+}";
+    // multitileevent: win / lose callout
+    string tileEvent = @"
+{" + tbridge + @"
+    if (!variable_instance_exists(id, ""nvda_te_last"")) nvda_te_last = 0;
+    if (con == 75 && nvda_te_last != 75) { nvda_te_last = 75; external_call(global.nvda_speak, ""¡Has cruzado las baldosas! Bien hecho.""); }
+    if (con == 30 && nvda_te_last != 30) { nvda_te_last = 30; external_call(global.nvda_speak, ""Se acabó el tiempo.""); }
+}";
+    var tg = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+    tg.QueueAppend(Data.Code.ByName("gml_Object_obj_tileguy_Create_0"), tileCreate);
+    tg.QueueAppend(Data.Code.ByName("gml_Object_obj_tileguy_Step_0"), tileStep);
+    tg.QueueAppend(Data.Code.ByName("gml_Object_obj_multitileevent_Step_0"), tileEvent);
+    tg.Import();
+    Console.WriteLine("Injected MINIGAME 2: multicolor tile maze (Q look-ahead + smell/tile speech + timer)");
+}
+
+// ===== MINIGAME 3: MTT NEWS-REPORT BOMB DEFUSAL (obj_mettnewsevent; 6 obj_mettnews_artifact bombs) =====
+// 6 items at fixed spots become bombs (global.flag[395] = defused count, win at 6) under a ~3-min doom
+// timer. Her complaint was "bombs weren't easy to REACH" -> the two scanner edits above register each
+// live bomb (gtfo==0) into the EXISTING, tested E/T/R/V navigation so she can find & autowalk to them.
+// Here: the entry hint + a "bomb defused, N left" progress callout. (The per-bomb defuse-timing step is
+// a battle ACT; confirm in-game with her whether the existing attack-bar beeps already cover it.)
+{
+    foreach (var f in new string[] { "external_define","external_call","variable_global_exists",
+             "variable_instance_exists","instance_exists","string" })
+        Data.Functions.EnsureDefined(f, Data.Strings);
+
+    string news = @"
+{
+    if (!variable_global_exists(""nvda_ready""))
+    {
+        global.nvda_init = external_define(""nvda_gm.dll"", ""gmnvda_init"", 0, 0, 1, 1);
+        global.nvda_speak = external_define(""nvda_gm.dll"", ""gmnvda_speak"", 0, 0, 1, 1);
+        external_call(global.nvda_init, """");
+        global.nvda_ready = 1;
+    }
+    if (instance_exists(obj_doomtimer))
+    {
+        if (!variable_instance_exists(id, ""nvda_news_greet"")) nvda_news_greet = 0;
+        if (nvda_news_greet == 0)
+        {
+            nvda_news_greet = 1;
+" + HintGml("bombs", "Bomb defusal. Six bombs are placed around this stage and you must reach and defuse every one before time runs out. Press E to scan, the bombs are announced as bombs, then press V to walk to the nearest one, or use T and R to pick which. Interact with a bomb to start defusing it. While defusing, a beep tracks the bomb piece as it sweeps from side to side and rises and speeds up as it nears the centre. Choose the defuse option the instant you hear the sharp high tone, that means the piece is in the defuse zone. Each defused bomb is removed and you will be told how many are left.") + @"
+        }
+        if (!variable_global_exists(""nvda_bombs_last"")) global.nvda_bombs_last = -1;
+        if (global.flag[395] != global.nvda_bombs_last)
+        {
+            global.nvda_bombs_last = global.flag[395];
+            var _left = 6 - global.flag[395];
+            if (global.flag[395] > 0)
+            {
+                if (_left > 0) external_call(global.nvda_speak, ""Bomba desactivada. "" + string(_left) + "" restantes."");
+                else external_call(global.nvda_speak, ""¡Todas las bombas desactivadas! Bien hecho."");
+            }
+        }
+    }
+}";
+    var ng = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+    ng.QueueAppend(Data.Code.ByName("gml_Object_obj_mettnewsevent_Step_0"), news);
+    ng.Import();
+    Console.WriteLine("Injected MINIGAME 3: news-report bomb defusal (bombs registered in scanner + hint + N-left callout)");
+}
+
+// ===== MINIGAME 3b: BOMB DEFUSE-TIMING CUE (obj_battlebomb_body sweeper) =====
+// The defuse target is obj_battlebomb_body, which SWEEPS horizontally (patterns per bombtype 0-6) and is
+// only catchable in the fixed centre zone x = 320 +/- coolwidth (got==1 while inside it). You press the
+// Defuse option when it's centred = a FIGHT-bar-style timing press. Cue it like the FIGHT bar she knows:
+// a beep panned to the piece that rises + speeds up toward centre, plus a sharp high tone the instant it
+// enters the zone (got 0->1) = "press now". Works for every bombtype because got is the ground truth;
+// vertical bombs (type 5) still fire the entry tone. Appended to the body's Draw_0 (after got is set).
+{
+    foreach (var f in new string[] { "external_define","external_call","variable_global_exists",
+             "variable_instance_exists","abs" })
+        Data.Functions.EnsureDefined(f, Data.Strings);
+
+    string bmb = @"
+{
+    if (!variable_global_exists(""pan_ready""))
+    {
+        global.pan_init = external_define(""gmpan.dll"", ""gmpan_init"", 0, 0, 0);
+        global.pan_beep = external_define(""gmpan.dll"", ""gmpan_beep"", 0, 0, 4, 0, 0, 0, 0);
+        external_call(global.pan_init);
+        global.pan_ready = 1;
+    }
+    if (!variable_instance_exists(id, ""nvda_bmb_ct"")) nvda_bmb_ct = 0;
+    if (!variable_instance_exists(id, ""nvda_bmb_lastgot"")) nvda_bmb_lastgot = 0;
+
+    // proximity to the centre defuse zone (1 = dead centre)
+    var _dxz = abs(x - 320);
+    var _prox = 1 - (_dxz / 240);
+    if (_prox < 0) _prox = 0;
+
+    // approach beep: pan to the piece, pitch + rate climb toward centre (like the FIGHT bar)
+    nvda_bmb_ct -= 1;
+    if (nvda_bmb_ct <= 0)
+    {
+        nvda_bmb_ct = 18 - (_prox * 13);   // far = every 18 frames, centre = every 5
+        var _pan = (x - 320) / 240;
+        if (_pan < -1) _pan = -1; if (_pan > 1) _pan = 1;
+        var _freq = 350 + (_prox * 450);   // far = 350Hz, centre = 800Hz
+        external_call(global.pan_beep, _pan, _freq, 70, 0.5);
+    }
+
+    // sharp 'NOW' tone the instant the piece enters the defuse zone
+    if (got == 1 && nvda_bmb_lastgot == 0)
+        external_call(global.pan_beep, 0, 950, 60, 0.65);
+    nvda_bmb_lastgot = got;
+}";
+    var bg = new UndertaleModLib.Compiler.CodeImportGroup(Data);
+    bg.QueueAppend(Data.Code.ByName("gml_Object_obj_battlebomb_body_Draw_0"), bmb);
+    bg.Import();
+    Console.WriteLine("Injected MINIGAME 3b: bomb defuse-timing cue (sweeper beep + in-zone NOW tone)");
 }

@@ -1,5 +1,51 @@
 # Changelog
 
+## v1.6 — "Mettaton's minigames, by ear" (2026-07-21)
+
+Built from a long round of feedback from a blind player. This update makes Mettaton's
+minigames playable by ear, tidies up the dodging, and clearly flags the handful of puzzles
+that genuinely need eyesight.
+
+### 🎮 Minigames, now playable by ear
+- **Cooking-show jetpack climb.** You rise automatically; you only steer left/right to dodge
+  Mettaton's flying lights and reach the top in time. A beep points to the clear side and
+  rises as a light nears; the time left and your progress ("Halfway up", "Almost at the top")
+  are spoken. In **Assisted** mode a knock barely sets you back.
+- **Colored tile maze.** Press **Q** to scan the four tiles around you. The mod names each
+  tile, tracks your smell (oranges vs lemons — which decides whether water bites you), warns
+  about zaps and piranhas, and calls the timer. Failing it is harmless.
+- **News-report bomb defusal.** The six bombs are now findable with the normal scanner —
+  press **E**, then **V** to walk to the nearest — and defusing has a FIGHT-bar-style cue: a
+  beep tracks the bomb piece as it sweeps and a sharp high tone means it's in the defuse zone.
+  You're told how many bombs remain.
+
+### 🎯 Dodging & cues
+- The safe-spot jump is **one press per move** — no mashing — and now plays a two-tone chime
+  each time you land, so you always know a jump happened.
+- Friendly "touch me" projectiles (the ones that heal you and let you spare a monster) get
+  their own warm rising chirp, so you no longer dodge the thing you're meant to touch.
+- Much wider coverage of boss and enemy attacks for the dodge sonar.
+
+### 🧭 Navigation & hints
+- **H** repeats the current hint at any time; hints now speak once instead of every wave.
+- **U** cycles just the exits, nearest first — a fast way to find the way onward.
+- Puzzles that truly need eyesight (Hotland's shoot-the-arrows and steam-vent rooms, and the
+  Waterfall bridge-seed puzzle) now say so on entry and point you at the **P**-then-**O** skip.
+
+---
+
+## v1.6-es — Edición en español (2026-07-23)
+
+The Spanish edition ships alongside, with everything above translated: the minigame guidance,
+the new hints, the exits key, the Tem Shop selling and the storage box. This release also
+fixes a rough edge that had been there since the first Spanish build — short connecting
+fragments ("of", "paces", "gold", the compass directions) were below the translator's cutoff
+and came out in English mid-sentence, so a line could read *"Salida 1 of 3, north, 12 paces"*.
+Those are now Spanish too. As always: story dialogue is ArceUseless's translation
+**"Undertale Español Castellano"**, the accessibility narration is ours.
+
+---
+
 ## v1.5 — "Audio description & a real sense of place" (2026-07-08)
 
 The biggest update yet. Until now the mod made everything **playable** by ear; this update

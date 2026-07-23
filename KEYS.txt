@@ -1,9 +1,31 @@
 ============================================================
- UNDERTALE - NVDA ACCESSIBILITY MOD - KEY REFERENCE
+ UNDERTALE - NVDA ACCESSIBILITY MOD - KEY REFERENCE  (v1.6)
 ============================================================
 
 Always have NVDA running before you start the game.
 Text, menus, and events are spoken automatically.
+
+NEW IN THIS VERSION: press H at any time to hear the hint for
+whatever you are currently doing (dodging, jumping, a puzzle,
+the storage box...). If you only remember one key, remember H.
+
+------------------------------------------------------------
+TWO THINGS THAT CONFUSE EVERYONE - READ THIS FIRST
+------------------------------------------------------------
+1. ONE PRESS, DON'T MASH. Every guided action in this mod is
+   a single press. Pressing a direction while dodging JUMPS
+   your soul to the safe spot - holding or mashing it fights
+   the mod and gets you hit. Press once, listen, press again.
+
+2. PITCH MEANS TWO DIFFERENT THINGS, depending on what you
+   are doing. This is the single most common confusion:
+     - When you ATTACK (the FIGHT bar): pitch means TIMING.
+       Rising, faster beeps = the target is coming. Press Z
+       on the highest, fastest beep.
+     - When you DODGE (the bullet part): pitch means HEIGHT.
+       High = the safe spot is near the TOP of the box, low =
+       near the BOTTOM. It is not telling you "press now".
+   In both cases, which EAR you hear it in = left or right.
 
 ------------------------------------------------------------
 WALKING AROUND (the overworld)
@@ -21,18 +43,42 @@ WALKING AROUND (the overworld)
   T ....................... select the next nearby thing
   R ....................... select the previous nearby thing
   G ....................... repeat your current target
+  U ....................... EXITS ONLY: cycle just the ways out
+                            of this room, nearest first, with the
+                            compass direction and distance. This
+                            also sets it as your target, so you
+                            can press V straight after to walk
+                            there. Use this when you are lost.
   V ....................... auto-walk to your selected target
                             (press V again, or any move key, to stop)
   L ....................... look: describe the area you are in
                             (repeats that room's audio description)
+  H ....................... repeat the hint for what you are doing
 
   As you walk you also hear soft footsteps, a thud at walls, a
   door sound through doorways, and a bell when something you can
   interact with is right next to you.
 
-  Stuck on a puzzle that needs eyesight (and only then):
-  P ....................... skip-puzzle mode / cycle the exits
-  O ....................... confirm the chosen exit
+------------------------------------------------------------
+THE PUZZLE SKIP  (P and O)
+------------------------------------------------------------
+  P ....................... hear the exits / press again to cycle
+  O ....................... go through the chosen exit
+
+  This works in any room, as an escape hatch if you are ever
+  truly stuck. But you should NOT need it often - almost every
+  puzzle in the game is playable by ear with the guidance the
+  mod gives you.
+
+  There are exactly THREE puzzles that are genuinely visual and
+  that the mod itself will tell you to skip:
+     - Waterfall: the bridge-seed puzzle (seeds drifting in
+       water that sprout into lily-pad bridges).
+     - Hotland: the shooting puzzle.
+     - Hotland: the steam-vent / bounce-pad and conveyor puzzle
+       (the way onward there is the door to the EAST).
+  In each of those rooms the description tells you to press P
+  then O. Everything else is meant to be played.
 
 ------------------------------------------------------------
 ACCESSIBILITY MENU and MUSIC (anywhere)
@@ -61,7 +107,8 @@ BATTLES - the menus (FIGHT / ACT / ITEM / MERCY)
 
   When you FIGHT, you hear quick "parking-sensor" beeps that
   speed up and rise in pitch toward the center - press Z on
-  the fastest, highest beep for the best hit.
+  the fastest, highest beep for the best hit. (Pitch = timing
+  here. See the note at the top.)
 
 ------------------------------------------------------------
 BATTLES - dodging attacks (the bullet/heart part)
@@ -70,12 +117,23 @@ BATTLES - dodging attacks (the bullet/heart part)
         Assisted = you cannot be defeated (recommended)
         Slow     = half speed, but you can be defeated
         Normal   = full speed, you can be defeated
-  A guide beep plays toward the safe spot:
-        which ear  = move left or right
-        high / low pitch = move up or down
-  Press the matching Arrow (or W A S D) to jump to the safe spot.
+  A guide beep plays toward the SAFEST SPOT in the box:
+        which ear  = it is to your left or your right
+        high / low pitch = it is near the top or the bottom
+  Press the matching Arrow (or W A S D) ONCE and your soul
+  jumps onto that spot. You will hear a quick two-tone chime
+  when you land, so you always know the jump worked. If you
+  hear a single low tone instead, there was nowhere safe to
+  land - wait for the wave to change.
   Q ....................... say where your heart is in the box
   F (hold) ................ fast-forward through slow moments
+  H ....................... repeat this explanation in game
+
+  FRIENDLY THINGS YOU SHOULD TOUCH: some monsters throw things
+  that HEAL you and are what makes them spareable (Vegetoid's
+  vegetables, Woshua, Whimsalot). Those play a WARM RISING
+  DOUBLE CHIRP instead of a hazard beep, and the mod will not
+  steer you away from them. Move ONTO a double chirp.
 
   BLUE heart (Papyrus): you stand on a floor and JUMP over bones.
   Press Up to jump - the mod sets the height for you, so you only
@@ -89,14 +147,47 @@ BATTLES - dodging attacks (the bullet/heart part)
   A beep tells you the side - press that Arrow to block it.
 
 ------------------------------------------------------------
-SPECIAL BITS
+SHOPS, STORAGE AND SPECIAL BITS
 ------------------------------------------------------------
+  Shops ................... every option is read. In the Temmie
+                            shop, SELLING is now read too: the
+                            item, what she will pay, and when
+                            she will not buy something at all.
+  Storage box ............. the dimensional box is read. Left and
+                            Right swap between what you are
+                            carrying and what is in the box, Up
+                            and Down move through the slots, Z
+                            moves an item across.
   Mettaton quiz show ...... the question and all 4 answers are
                             read. Press 1, 2, 3 or 4 to pick,
                             then Z to lock it in. No time limit.
-  Hotland shooting puzzle . press P, then O, to skip it.
-  Elevators and shops ..... use the Arrow keys and Z; every
+  Elevators ............... use the Arrow keys and Z; every
                             option is read aloud.
+
+------------------------------------------------------------
+THE METTATON MINIGAMES (new in v1.6)
+------------------------------------------------------------
+  These used to be dead ends. Press H in any of them to hear
+  the full explanation again.
+
+  Cooking-show jetpack climb: you rise automatically - you only
+  steer LEFT and RIGHT. A beep points to the CLEAR side and its
+  pitch rises as a light gets close. You are told the time left
+  and how far up you are.
+
+  Coloured tile maze: walk the grid to the right-hand side.
+  Q ....................... scan the four tiles around you
+  Pink is safe, red is a wall, yellow zaps you, green is
+  harmless. Orange tiles make you smell of oranges, purple tiles
+  make you smell of lemons, and water is safe UNLESS you smell
+  of oranges. So step on a purple tile before crossing water.
+  (This puzzle is meant to be hard - that part is not the mod.)
+
+  News report bomb defusal: the six bombs are now announced by
+  the scanner. Press E to scan, T and R to pick one, V to walk
+  to it. While defusing, a beep tracks the bomb piece as it
+  sweeps side to side; choose the defuse option the instant you
+  hear the sharp high tone. You are told how many bombs remain.
 
 ------------------------------------------------------------
 FINAL BOSS - Photoshop Flowey
@@ -111,6 +202,16 @@ FINAL BOSS - Photoshop Flowey
   O ....................... say the current state (souls freed,
                             HP, whether a soul round is active)
   F (hold) ................ speed up the quiet stretches
+
+------------------------------------------------------------
+KNOWN GAPS - being honest with you
+------------------------------------------------------------
+  The dodge guidance does NOT yet cover three fights, because
+  they use a different soul system internally:
+     - Sans (the very end of a genocide route)
+     - the yellow-soul shooting sections
+     - the Temmie fight
+  Everything else in the game is covered.
 
 ============================================================
 Have fun. You earned this.

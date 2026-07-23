@@ -714,6 +714,120 @@ T_ad = {
         ". Pulsa Z.",
     " percent":
         " por ciento",
+    # ===== v1.6 batch: round-2 fixes, Mettaton minigames, exits key, shop sell, storage box =====
+    'A bridge-seed puzzle. Clusters of seeds drift in the water and sprout into lily-pad bridges where they gather, but lining them up by sight is impractical without vision, so this one is best skipped. To skip it: press P to hear the exits, press P again to cycle between them, then press O to go through.':
+        'Un puzle de semillas puente. Grupos de semillas van a la deriva por el agua y brotan formando puentes de nenúfares allí donde se juntan, pero alinearlas a simple vista no es práctico sin visión, así que es mejor saltarse este. Para saltarlo: pulsa P para oír las salidas, pulsa P otra vez para pasar de una a otra y luego pulsa O para cruzar.',
+    'A puzzle of steam vents and conveyor belts. The bounce pads and belts move you automatically, so this one is a visual puzzle best skipped. To skip it: press P to hear the exits, press P again to cycle between them, then press O to go through. The way onward is the door to the east.':
+        'Un puzle de chorros de vapor y cintas transportadoras. Las plataformas de rebote y las cintas te mueven automáticamente, así que este es un puzle visual que conviene saltarse. Para saltarlo: pulsa P para oír las salidas, pulsa P otra vez para pasar de una a otra y luego pulsa O para cruzar. El camino a seguir es la puerta del este.',
+    'No hint for what you are doing right now.':
+        'No hay ninguna ayuda para lo que estás haciendo ahora mismo.',
+    'No way out found in this room.':
+        'No se ha encontrado ninguna salida en esta sala.',
+    ' paces. Press V to walk there, or U for the next one.':
+        ' pasos. Pulsa V para ir hasta allí, o U para la siguiente.',
+    'Bomb, walk here to defuse':
+        'Bomba, ven aquí para desactivarla',
+    'Already sold':
+        'Ya vendido',
+    ', she will not buy this':
+        ', no te comprará esto',
+    'Yes, sell for ':
+        'Sí, vender por ',
+    'Carrying. ':
+        'Llevas. ',
+    ' seconds':
+        ' segundos',
+    'Halfway up.':
+        'Vas por la mitad.',
+    'Almost at the top.':
+        'Ya casi estás arriba.',
+    'You reached the top!':
+        '¡Has llegado arriba!',
+    'Out of time.':
+        'Se acabó el tiempo.',
+    'You smell of oranges. Water bites now.':
+        'Hueles a naranjas. Ahora el agua muerde.',
+    'You smell of lemons. Water is safe now.':
+        'Hueles a limones. Ahora el agua es segura.',
+    'Ouch, piranhas!':
+        '¡Ay, pirañas!',
+    'Yellow, zap':
+        'Amarillo, descarga',
+    'Water, danger':
+        'Agua, peligro',
+    'the exit':
+        'la salida',
+    'pink, safe':
+        'rosa, seguro',
+    'red, blocked':
+        'rojo, bloqueado',
+    'purple, lemons':
+        'morado, limones',
+    'yellow, zap':
+        'amarillo, descarga',
+    'orange scent':
+        'olor a naranja',
+    'water, piranhas':
+        'agua, pirañas',
+    'water, safe':
+        'agua, seguro',
+    'You crossed the tiles! Well done.':
+        '¡Has cruzado las baldosas! Bien hecho.',
+    'Bomb defused. ':
+        'Bomba desactivada. ',
+    'All bombs defused! Well done.':
+        '¡Todas las bombas desactivadas! Bien hecho.',
+    'north':
+        'norte',
+    'south':
+        'sur',
+    'west':
+        'oeste',
+    'east':
+        'este',
+    'Way out ':
+        'Salida ',
+    ', on':
+        ', activado',
+    ', off':
+        ', desactivado',
+    'Menu. ':
+        'Menú. ',
+    ' plus ':
+        ' más ',
+    ', or ':
+        ', o ',
+    ' for ':
+        ' por ',
+    'Sell ':
+        'Vender ',
+    'Sell. ':
+        'Vender. ',
+    ' gold':
+        ' de oro',
+    ' gold? ':
+        ' de oro? ',
+    ' left.':
+        ' restantes.',
+    'edge':
+        'borde',
+    'green':
+        'verde',
+    'Pink':
+        'Rosa',
+    'Water':
+        'Agua',
+    'Green':
+        'Verde',
+    'Left':
+        'Izquierda',
+    'Right':
+        'Derecha',
+    'Up':
+        'Arriba',
+    'Down':
+        'Abajo',
+
 }
 
 beats_set = set(l for l in io.open("_corpus_beats.txt", encoding="utf-8").read().split("\n") if l)

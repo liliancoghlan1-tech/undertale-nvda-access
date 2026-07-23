@@ -7,10 +7,17 @@ story, menus, battles, navigation, puzzles, and even the final boss — playable
 This mod was made by and tested by a blind player who beat the **entire game** with it,
 start to finish, including the hardest fights.
 
-**New in v1.5 — audio description.** Beyond making the game *playable* by ear, the mod now
+**New in v1.6 — Mettaton's minigames, and more.** The cooking-show **jetpack climb**, the
+**colored tile maze**, and the **news-report bomb defusal** are now playable by ear, each with
+its own guidance (see *Controls*). Hints now speak once and repeat on demand with **H**, an
+exits-only finder is on **U**, friendly "touch me" projectiles get their own warm chirp so you
+don't dodge the thing that heals you, and the handful of puzzles that truly need eyesight are
+clearly flagged with a skip. See the [changelog](CHANGELOG.md).
+
+**From v1.5 — audio description.** Beyond making the game *playable* by ear, the mod also
 *describes* it: what each character looks like, what every room looks like (press **L** to
 re-hear), the silent visual moments in cutscenes, and what each monster looks like in battle
-(press **D**). See the [changelog](CHANGELOG.md).
+(press **D**).
 
 ---
 
@@ -49,13 +56,13 @@ translation; it only ships its own accessibility layer. Source in
 Full list in **`KEYS.txt`** (included in the download). The essentials:
 
 - **Arrow keys / WASD** move · **Z** interact/confirm · **C** menu
-- **E** scans your surroundings; the mod guides you by voice as you walk
+- **E** scans your surroundings; **U** cycles just the exits when a room is cluttered
 - **V** auto-walks you to your selected target (pathfinds around walls)
-- **L** describes the room you're in; **D** (in battle) describes the monster you're facing
+- **L** describes the room you're in; **H** repeats the current hint; **D** (in battle) describes the monster
 - **K** opens the in-game **Accessibility menu** (toggle features, difficulty, music) — also on the title screen
 - **N / B** turn the music down / up so the cues come through
 - In dodging fights, press **M** for **Assisted mode** (can't be defeated) and follow the
-  guide beeps — *which ear* = left/right, *pitch* = up/down
+  guide beeps — *which ear* = left/right, *pitch* = up/down (one press per move — no mashing)
 
 ## What's covered
 
@@ -63,7 +70,8 @@ Intro & all dialogue, naming screen, title/settings menus, walk-by-ear navigatio
 **auto-walk** and ambient navigation sounds, an in-game **Accessibility menu**, music
 volume control, the in-game menu (items/stats/cell/save), shops, elevators, battle menus,
 the FIGHT timing bar, attack-dodging (with assist/slow/normal modes), the **jump** and
-**shield** soul fights, area puzzles (with a skip option for the few that truly need
+**shield** soul fights, **Mettaton's minigames** (jetpack climb, colored tile maze, bomb
+defusal — each guided by ear), area puzzles (with a skip option for the few that truly need
 eyesight), the Mettaton quiz, and the final boss.
 
 **Audio description (v1.5):** character introductions, a description of every room in the
